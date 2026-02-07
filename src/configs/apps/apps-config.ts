@@ -37,18 +37,161 @@ const finder = create_app_config({
 	title: 'Finder',
 	resizable: true,
 
-	// dockBreaksBefore: true,
-	should_open_window: false,
+	height: 550,
+	width: 800,
 });
 
 const safari = create_app_config({
 	title: 'Safari',
 	resizable: true,
+
+	height: 600,
+	width: 900,
+});
+
+const terminal = create_app_config({
+	title: 'Terminal',
+	resizable: true,
+
+	height: 450,
+	width: 650,
+});
+
+const notes = create_app_config({
+	title: 'Notes',
+	resizable: true,
+
+	height: 550,
+	width: 750,
+});
+
+const messages = create_app_config({
+	title: 'Messages',
+	resizable: true,
+
+	height: 550,
+	width: 750,
+});
+
+const mail = create_app_config({
+	title: 'Mail',
+	resizable: true,
+
+	height: 600,
+	width: 900,
+});
+
+const photos = create_app_config({
+	title: 'Photos',
+	resizable: true,
+
+	height: 600,
+	width: 800,
+});
+
+const music = create_app_config({
+	title: 'Music',
+	resizable: true,
+
+	height: 600,
+	width: 900,
+});
+
+const maps = create_app_config({
+	title: 'Maps',
+	resizable: true,
+
+	height: 550,
+	width: 800,
 });
 
 const systemPreferences = create_app_config({
 	title: 'System Preferences',
 	resizable: true,
+
+	height: 550,
+	width: 700,
+});
+
+const facetime = create_app_config({
+	title: 'FaceTime',
+	resizable: true,
+
+	height: 550,
+	width: 750,
+});
+
+const reminders = create_app_config({
+	title: 'Reminders',
+	resizable: true,
+
+	height: 500,
+	width: 650,
+});
+
+const news = create_app_config({
+	title: 'News',
+	resizable: true,
+
+	height: 600,
+	width: 850,
+});
+
+const podcasts = create_app_config({
+	title: 'Podcasts',
+	resizable: true,
+
+	height: 600,
+	width: 850,
+});
+
+const tv = create_app_config({
+	title: 'TV',
+	resizable: true,
+
+	height: 600,
+	width: 900,
+});
+
+const contacts = create_app_config({
+	title: 'Contacts',
+	resizable: true,
+
+	height: 500,
+	width: 700,
+});
+
+const keynote = create_app_config({
+	title: 'Keynote',
+	resizable: true,
+
+	height: 600,
+	width: 900,
+});
+
+const launchpad = create_app_config({
+	title: 'Launchpad',
+	resizable: true,
+	expandable: true,
+
+	height: 600,
+	width: 800,
+});
+
+const devutils = create_app_config({
+	title: 'DevUtils',
+	resizable: true,
+
+	height: 550,
+	width: 800,
+});
+
+const preview = create_app_config({
+	title: 'Preview',
+	resizable: true,
+
+	height: 550,
+	width: 700,
 });
 
 const purusTwitter = create_app_config({
@@ -87,14 +230,31 @@ const appstore = create_app_config({
 
 export const apps_config = {
 	finder,
+	safari,
+	terminal,
+	notes,
+	messages,
+	mail,
+	photos,
+	music,
+	maps,
+	'system-preferences': systemPreferences,
+	facetime,
+	reminders,
+	news,
+	podcasts,
+	tv,
+	contacts,
+	keynote,
+	launchpad,
+	devutils,
+	preview,
+
 	wallpapers,
 	calculator,
 	calendar,
 	vscode,
 	appstore,
-	// safari,
-
-	// 'system-preferences': systemPreferences,
 
 	'purus-twitter': purusTwitter,
 	'view-source': viewSource,
