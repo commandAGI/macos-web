@@ -285,6 +285,58 @@
 	const has_pinned = $derived(filtered_notes.some(n => n.pinned));
 	const selected_note = $derived(notes.find(n => n.id === selected_note_id) ?? null);
 
+	type NoteGroup = {
+		label: string;
+		notes: Note[];
+	};
+
+	function get_date_group_label(timestamp: number): string {
+		const date = new Date(timestamp);
+		const today_start = new Date();
+		today_start.setHours(0, 0, 0, 0);
+		const yesterday_start = new Date(today_start);
+		yesterday_start.setDate(yesterday_start.getDate() - 1);
+		const week_start = new Date(today_start);
+		week_start.setDate(week_start.getDate() - 7);
+		const month_start = new Date(today_start);
+		month_start.setDate(month_start.getDate() - 30);
+
+		if (timestamp >= today_start.getTime()) return 'Today';
+		if (timestamp >= yesterday_start.getTime()) return 'Yesterday';
+		if (timestamp >= week_start.getTime()) return 'Previous 7 Days';
+		if (timestamp >= month_start.getTime()) return 'Previous 30 Days';
+		return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+	}
+
+	const grouped_notes = $derived.by(() => {
+		const pinned = filtered_notes.filter(n => n.pinned);
+		const unpinned = filtered_notes.filter(n => !n.pinned);
+
+		const groups: NoteGroup[] = [];
+
+		if (pinned.length > 0) {
+			groups.push({ label: 'Pinned', notes: pinned });
+		}
+
+		// Group unpinned notes by date
+		const sort_timestamp = (n: Note) => sort_mode === 'created' ? n.created_at : n.updated_at;
+		const date_groups = new Map<string, Note[]>();
+
+		for (const note of unpinned) {
+			const label = get_date_group_label(sort_timestamp(note));
+			if (!date_groups.has(label)) {
+				date_groups.set(label, []);
+			}
+			date_groups.get(label)!.push(note);
+		}
+
+		for (const [label, group_notes] of date_groups) {
+			groups.push({ label, notes: group_notes });
+		}
+
+		return groups;
+	});
+
 	const folder_counts = $derived.by(() => {
 		const counts: Record<string, number> = {};
 		const active_notes = notes.filter(n => n.deleted_at === null);
@@ -578,6 +630,13 @@
 					</button>
 				{/each}
 			</div>
+
+			<button class="new-folder-btn">
+				<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+					<path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+				</svg>
+				New Folder
+			</button>
 		</aside>
 
 		<!-- Column 2: Note List -->
@@ -614,35 +673,32 @@
 						<span>No Notes</span>
 					</div>
 				{/if}
-				{#each filtered_notes as note, i}
-					{#if note.pinned && (i === 0 || !filtered_notes[i - 1].pinned)}
-						<div class="list-section-header">
+				{#each grouped_notes as group}
+					<div class="list-section-header">
+						{#if group.label === 'Pinned'}
 							<svg width="9" height="9" viewBox="0 0 10 10" fill="none">
 								<path d="M5 1L6.5 4L5 7L5 9.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
 								<circle cx="5" cy="2.5" r="1.5" stroke="currentColor" stroke-width="0.8"/>
 							</svg>
-							Pinned
-						</div>
-					{/if}
-					{#if !note.pinned && (i === 0 || filtered_notes[i - 1].pinned)}
-						<div class="list-section-header">
-							{has_pinned ? 'Notes' : ''}
-						</div>
-					{/if}
-					<button
-						class="note-card"
-						class:active={selected_note_id === note.id}
-						onclick={() => select_note(note)}
-						oncontextmenu={(e) => { e.preventDefault(); toggle_pin(note.id); }}
-					>
-						<div class="note-card-title">
-							{note.title || 'New Note'}
-						</div>
-						<div class="note-card-meta">
-							<span class="note-card-date">{format_date(note.updated_at)}</span>
-							<span class="note-card-preview">{get_preview(note.body)}</span>
-						</div>
-					</button>
+						{/if}
+						{group.label}
+					</div>
+					{#each group.notes as note}
+						<button
+							class="note-card"
+							class:active={selected_note_id === note.id}
+							onclick={() => select_note(note)}
+							oncontextmenu={(e) => { e.preventDefault(); toggle_pin(note.id); }}
+						>
+							<div class="note-card-title">
+								{note.title || 'New Note'}
+							</div>
+							<div class="note-card-meta">
+								<span class="note-card-date">{format_date(note.updated_at)}</span>
+								<span class="note-card-preview">{get_preview(note.body)}</span>
+							</div>
+						</button>
+					{/each}
 				{/each}
 			</div>
 
@@ -917,8 +973,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: #86868b;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
 		padding: 8px 14px 4px;
 		user-select: none;
 	}
@@ -1031,6 +1085,33 @@
 		color: #0a84ff;
 	}
 
+	.new-folder-btn {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: auto;
+		padding: 8px 12px;
+		border: none;
+		background: transparent;
+		color: #007aff;
+		font-size: 13px;
+		cursor: pointer;
+		font-family: inherit;
+		transition: background 0.12s ease;
+
+		&:hover {
+			background: rgba(0, 122, 255, 0.08);
+		}
+
+		:global(body.dark) & {
+			color: #0a84ff;
+
+			&:hover {
+				background: rgba(10, 132, 255, 0.12);
+			}
+		}
+	}
+
 	/* ===== Column 2: Note List ===== */
 	.note-list-panel {
 		width: 260px;
@@ -1104,9 +1185,7 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: #86868b;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
-		padding: 10px 10px 4px;
+		padding: 8px 12px 4px;
 		display: flex;
 		align-items: center;
 		gap: 4px;
@@ -1368,9 +1447,9 @@
 
 	.editor-date-line {
 		font-size: 12px;
-		color: #aeaeb2;
+		color: #86868b;
 		text-align: center;
-		margin-bottom: 16px;
+		margin-bottom: 4px;
 	}
 
 	.editor-title {

@@ -190,6 +190,8 @@
 
 	// --- Appearance toggles ---
 	let wallpaper_tinting = $state(true);
+	let scroll_bar_mode = $state('auto');
+	let scroll_click_mode = $state('page');
 
 	// --- General "About" data ---
 	const about_info = {
@@ -251,85 +253,142 @@
 		{#if selected_section === 'general'}
 			<h1 class="section-title">General</h1>
 
-			<!-- About This Mac -->
+			<!-- Compact About This Mac header -->
 			<div class="setting-card">
-				<div class="about-header">
-					<div class="about-mac-icon">
-						<svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+				<div class="about-header-compact">
+					<div class="about-mac-icon-compact">
+						<svg width="36" height="36" viewBox="0 0 24 24" fill="none">
 							<rect x="3" y="2" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
 							<line x1="8" y1="20" x2="16" y2="20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
 							<line x1="12" y1="16" x2="12" y2="20" stroke="currentColor" stroke-width="1.5"/>
 						</svg>
 					</div>
-					<div class="about-mac-info">
-						<span class="about-mac-name">{about_info.name}</span>
-						<span class="about-mac-version">Version {about_info.version}</span>
+					<div class="about-mac-info-compact">
+						<span class="about-mac-name-compact">{about_info.name}</span>
+						<span class="about-mac-model-compact">{about_info.model}</span>
 					</div>
 				</div>
 			</div>
 
+			<!-- General navigation items -->
 			<div class="setting-card">
-				<div class="setting-row">
-					<span class="setting-row-label">Chip</span>
-					<span class="setting-row-value">{about_info.chip}</span>
-				</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #8E8E93;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="9" fill="none" stroke="white" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="13" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1.2" fill="white"/></svg>
+					</span>
+					<span class="general-nav-label">About</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
 				<div class="setting-divider"></div>
-				<div class="setting-row">
-					<span class="setting-row-label">Memory</span>
-					<span class="setting-row-value">{about_info.memory}</span>
-				</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #8E8E93;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+					</span>
+					<span class="general-nav-label">Software Update</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
 				<div class="setting-divider"></div>
-				<div class="setting-row">
-					<span class="setting-row-label">Serial number</span>
-					<span class="setting-row-value">{about_info.serial}</span>
-				</div>
-				<div class="setting-divider"></div>
-				<div class="setting-row">
-					<span class="setting-row-label">macOS</span>
-					<span class="setting-row-value">Sonoma {about_info.version}</span>
-				</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #8E8E93;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="4" y="6" width="16" height="12" rx="2" fill="none" stroke="white" stroke-width="2"/><line x1="4" y1="10" x2="20" y2="10" stroke="white" stroke-width="1.5"/><line x1="4" y1="14" x2="20" y2="14" stroke="white" stroke-width="1.5"/></svg>
+					</span>
+					<span class="general-nav-label">Storage</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
 			</div>
 
 			<div class="setting-card">
-				<div class="setting-row">
-					<div class="setting-label-group">
-						<span class="setting-row-label">About</span>
-						<span class="setting-row-desc">Name, network, storage, and other info about this Mac</span>
-					</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #007AFF;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 2L6.5 11h3.5v5l5.5-9h-3.5V2z"/></svg>
+					</span>
+					<span class="general-nav-label">AirDrop & Handoff</span>
 					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
 						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 					</svg>
-				</div>
+				</button>
 				<div class="setting-divider"></div>
-				<div class="setting-row">
-					<div class="setting-label-group">
-						<span class="setting-row-label">Software Update</span>
-						<span class="setting-row-desc">Update macOS, automatic updates</span>
-					</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #8E8E93;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M3 5h18v2H3V5zm0 4h18v2H3V9zm0 4h18v2H3v-2zm0 4h18v2H3v-2z"/></svg>
+					</span>
+					<span class="general-nav-label">Login Items</span>
 					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
 						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 					</svg>
-				</div>
+				</button>
+			</div>
+
+			<div class="setting-card">
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #007AFF;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="white" stroke-width="2"/><ellipse cx="12" cy="12" rx="3.5" ry="9" stroke="white" stroke-width="1.5"/><line x1="3" y1="12" x2="21" y2="12" stroke="white" stroke-width="1.5"/></svg>
+					</span>
+					<span class="general-nav-label">Language & Region</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
 				<div class="setting-divider"></div>
-				<div class="setting-row">
-					<div class="setting-label-group">
-						<span class="setting-row-label">Storage</span>
-						<span class="setting-row-desc">Manage and optimize storage</span>
-					</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #007AFF;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="9" fill="none" stroke="white" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="12" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="12" x2="16" y2="14" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
+					</span>
+					<span class="general-nav-label">Date & Time</span>
 					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
 						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 					</svg>
-				</div>
+				</button>
 				<div class="setting-divider"></div>
-				<div class="setting-row">
-					<div class="setting-label-group">
-						<span class="setting-row-label">Login Items</span>
-						<span class="setting-row-desc">Apps and services that open at login</span>
-					</div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #007AFF;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg>
+					</span>
+					<span class="general-nav-label">Sharing</span>
 					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
 						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 					</svg>
-				</div>
+				</button>
+			</div>
+
+			<div class="setting-card">
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #34C759;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="9" fill="none" stroke="white" stroke-width="2"/><polyline points="12,6 12,12 16,14" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 4.5L2 7" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round"/><path d="M19.5 4.5L22 7" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+					</span>
+					<span class="general-nav-label">Time Machine</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+			</div>
+
+			<div class="setting-card">
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #8E8E93;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z"/></svg>
+					</span>
+					<span class="general-nav-label">Transfer or Reset</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+				<div class="setting-divider"></div>
+				<button class="general-nav-row">
+					<span class="general-nav-icon" style="background: #8E8E93;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="4" y="6" width="16" height="12" rx="2" fill="none" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="white" stroke-width="1.5"/></svg>
+					</span>
+					<span class="general-nav-label">Startup Disk</span>
+					<svg class="chevron" width="7" height="12" viewBox="0 0 7 12" fill="none">
+						<path d="M1 1l5 5-5 5" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
 			</div>
 
 		{:else if selected_section === 'appearance'}
@@ -430,6 +489,60 @@
 					<button class="toggle" class:on={wallpaper_tinting} onclick={() => wallpaper_tinting = !wallpaper_tinting}>
 						<span class="toggle-knob"></span>
 					</button>
+				</div>
+			</div>
+
+			<!-- Show scroll bars -->
+			<div class="setting-card">
+				<div class="radio-group-header">Show scroll bars</div>
+				<div class="radio-group-options">
+					<label class="radio-option" onclick={() => scroll_bar_mode = 'auto'}>
+						<span class="radio-circle" class:selected={scroll_bar_mode === 'auto'}>
+							{#if scroll_bar_mode === 'auto'}
+								<span class="radio-circle-inner"></span>
+							{/if}
+						</span>
+						<span class="radio-label">Automatically based on mouse or trackpad</span>
+					</label>
+					<label class="radio-option" onclick={() => scroll_bar_mode = 'scrolling'}>
+						<span class="radio-circle" class:selected={scroll_bar_mode === 'scrolling'}>
+							{#if scroll_bar_mode === 'scrolling'}
+								<span class="radio-circle-inner"></span>
+							{/if}
+						</span>
+						<span class="radio-label">When scrolling</span>
+					</label>
+					<label class="radio-option" onclick={() => scroll_bar_mode = 'always'}>
+						<span class="radio-circle" class:selected={scroll_bar_mode === 'always'}>
+							{#if scroll_bar_mode === 'always'}
+								<span class="radio-circle-inner"></span>
+							{/if}
+						</span>
+						<span class="radio-label">Always</span>
+					</label>
+				</div>
+			</div>
+
+			<!-- Click in the scroll bar to -->
+			<div class="setting-card">
+				<div class="radio-group-header">Click in the scroll bar to</div>
+				<div class="radio-group-options">
+					<label class="radio-option" onclick={() => scroll_click_mode = 'page'}>
+						<span class="radio-circle" class:selected={scroll_click_mode === 'page'}>
+							{#if scroll_click_mode === 'page'}
+								<span class="radio-circle-inner"></span>
+							{/if}
+						</span>
+						<span class="radio-label">Jump to the next page</span>
+					</label>
+					<label class="radio-option" onclick={() => scroll_click_mode = 'spot'}>
+						<span class="radio-circle" class:selected={scroll_click_mode === 'spot'}>
+							{#if scroll_click_mode === 'spot'}
+								<span class="radio-circle-inner"></span>
+							{/if}
+						</span>
+						<span class="radio-label">Jump to the spot that's clicked</span>
+					</label>
 				</div>
 			</div>
 
@@ -1482,6 +1595,65 @@
 		}
 	}
 
+	/* ===== Radio group (macOS-style) ===== */
+	.radio-group-header {
+		font-size: 13px;
+		font-weight: 600;
+		color: #86868b;
+		padding: 12px 16px 4px;
+	}
+
+	.radio-group-options {
+		padding: 4px 16px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+	}
+
+	.radio-option {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 0;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.radio-circle {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		border: 1.5px solid #c7c7cc;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		background: white;
+		transition: border-color 0.15s;
+
+		:global(body.dark) & {
+			border-color: #636366;
+			background: #2c2c2e;
+		}
+
+		&.selected {
+			border-color: var(--system-color-primary);
+			background: var(--system-color-primary);
+		}
+	}
+
+	.radio-circle-inner {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: white;
+	}
+
+	.radio-label {
+		font-size: 13px;
+		color: var(--system-color-light-contrast);
+	}
+
 	/* ===== Wallpaper section ===== */
 	.wallpaper-card {
 		padding: 16px;
@@ -1840,38 +2012,86 @@
 		font-size: 14px;
 	}
 
-	/* ===== General / About section ===== */
-	.about-header {
+	/* ===== General / About section (compact header) ===== */
+	.about-header-compact {
 		display: flex;
 		align-items: center;
-		gap: 16px;
-		padding: 20px 16px;
+		gap: 12px;
+		padding: 14px 16px;
 	}
 
-	.about-mac-icon {
-		width: 56px;
-		height: 56px;
+	.about-mac-icon-compact {
+		width: 44px;
+		height: 44px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		color: #86868b;
+		flex-shrink: 0;
 	}
 
-	.about-mac-info {
+	.about-mac-info-compact {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 1px;
 	}
 
-	.about-mac-name {
-		font-size: 20px;
+	.about-mac-name-compact {
+		font-size: 15px;
 		font-weight: 600;
-		letter-spacing: -0.2px;
+		letter-spacing: -0.1px;
 	}
 
-	.about-mac-version {
-		font-size: 13px;
+	.about-mac-model-compact {
+		font-size: 12px;
 		color: #86868b;
+	}
+
+	/* ===== General navigation rows ===== */
+	.general-nav-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		width: 100%;
+		padding: 10px 16px;
+		min-height: 44px;
+		border: none;
+		background: none;
+		cursor: pointer;
+		text-align: left;
+		color: var(--system-color-light-contrast);
+		font-family: inherit;
+		font-size: 13px;
+		transition: background 0.1s;
+
+		&:hover {
+			background: rgba(0, 0, 0, 0.03);
+			:global(body.dark) & {
+				background: rgba(255, 255, 255, 0.04);
+			}
+		}
+
+		&:active {
+			background: rgba(0, 0, 0, 0.06);
+			:global(body.dark) & {
+				background: rgba(255, 255, 255, 0.08);
+			}
+		}
+	}
+
+	.general-nav-icon {
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.general-nav-label {
+		flex: 1;
+		font-weight: 400;
 	}
 
 	/* ===== Apple ID section ===== */

@@ -1415,8 +1415,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: #86868b;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
 	}
 
 	.sidebar-bookmark {

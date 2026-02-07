@@ -428,7 +428,18 @@
 				{ id: 'artists', label: 'Artists', icon: 'artists' },
 				{ id: 'albums', label: 'Albums', icon: 'albums' },
 				{ id: 'songs', label: 'Songs', icon: 'songs' },
-				{ id: 'playlists', label: 'Playlists', icon: 'playlists' },
+			]
+		},
+		{
+			title: 'Store',
+			items: [
+				{ id: 'itunes-store', label: 'iTunes Store', icon: 'store' },
+			]
+		},
+		{
+			title: 'Playlists',
+			items: [
+				{ id: 'playlists', label: 'All Playlists', icon: 'playlists' },
 			]
 		}
 	];
@@ -497,6 +508,8 @@
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"/></svg>
 								{:else if item.icon === 'songs'}
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+								{:else if item.icon === 'store'}
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4v2l1 1v13h2v-5h4v5h8V7l1-1V4zm-6 10h-2v-2h2v2zm4 0h-2v-2h2v2zm0-4h-2V8h2v2zm-4 0h-2V8h2v2z"/></svg>
 								{:else if item.icon === 'playlists'}
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
 								{/if}
@@ -1237,9 +1250,7 @@
 		font-size: 11px;
 		font-weight: 700;
 		color: #86868b;
-		text-transform: uppercase;
 		padding: 8px 16px 4px;
-		letter-spacing: 0.3px;
 	}
 
 	.sidebar-item {
@@ -2168,8 +2179,6 @@
 		font-size: 11px;
 		font-weight: 700;
 		color: #86868b;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
 		margin-bottom: 6px;
 	}
 

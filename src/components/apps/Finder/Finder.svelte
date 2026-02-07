@@ -57,6 +57,8 @@
 	];
 
 	const sidebar_locations = [
+		{ name: 'iCloud Drive', icon: 'icloud' },
+		{ name: 'Time Machine', icon: 'timemachine' },
 		{ name: 'Macintosh HD', icon: 'disk' },
 		{ name: 'Network', icon: 'network' },
 	];
@@ -68,10 +70,15 @@
 		{ name: 'Green', color: '#34c759' },
 		{ name: 'Blue', color: '#007aff' },
 		{ name: 'Purple', color: '#af52de' },
+		{ name: 'Gray', color: '#8e8e93' },
 	];
 
 	function get_sidebar_svg(icon: string): string {
 		switch (icon) {
+			case 'icloud':
+				return '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 13H4a3.5 3.5 0 01-.5-6.96A5 5 0 019 2a5 5 0 014.9 4.1A3 3 0 0113.5 13z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+			case 'timemachine':
+				return '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.5V8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 3.5C1.3 5 .5 6.4.5 8A7.5 7.5 0 008 15.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M2.5 3.5L1 5.5M2.5 3.5L4.5 5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 			case 'airdrop':
 				return '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="5" r="2"/><path d="M4 13c0-2.2 1.8-4 4-4s4 1.8 4 4"/><path d="M1 14c0-3.9 3.1-7 7-7s7 3.1 7 7" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
 			case 'recents':
@@ -185,6 +192,12 @@
 			{ name: 'Resume.docx', kind: 'Word Document', size: '45 KB', modified: 'Jan 10, 2024' },
 		],
 		AirDrop: [],
+		'iCloud Drive': [
+			{ name: 'Documents', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
+			{ name: 'Desktop', kind: 'Folder', size: '--', modified: 'Jan 14, 2024' },
+			{ name: 'Pages Documents', kind: 'Folder', size: '--', modified: 'Dec 20, 2023' },
+		],
+		'Time Machine': [],
 		'Macintosh HD': [
 			{ name: 'Applications', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
 			{ name: 'Library', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
@@ -832,6 +845,16 @@
 						<span class="sidebar-label">{tag.name}</span>
 					</button>
 				{/each}
+				<button
+					class="sidebar-item all-tags-item"
+					onclick={() => {}}
+				>
+					<svg class="sidebar-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+						<path d="M1 3.5A1.5 1.5 0 012.5 2h4.586a1.5 1.5 0 011.06.44l5.415 5.414a1.5 1.5 0 010 2.122l-4.586 4.585a1.5 1.5 0 01-2.121 0L1.439 9.146A1.5 1.5 0 011 8.086V3.5z" stroke="currentColor" stroke-width="1.3"/>
+						<circle cx="4.5" cy="5.5" r="1" fill="currentColor"/>
+					</svg>
+					<span>All Tags…</span>
+				</button>
 			</div>
 		</aside>
 
@@ -1477,9 +1500,7 @@
 		font-size: 11px;
 		font-weight: 700;
 		color: #86868b;
-		text-transform: uppercase;
 		padding: 8px 16px 4px;
-		letter-spacing: 0.3px;
 	}
 
 	.sidebar-item {
@@ -1561,6 +1582,15 @@
 		height: 10px;
 		border-radius: 50%;
 		flex-shrink: 0;
+	}
+
+	.all-tags-item {
+		color: rgba(0, 0, 0, 0.5);
+		font-size: 12px;
+
+		:global(body.dark) & {
+			color: rgba(255, 255, 255, 0.45);
+		}
 	}
 
 	/* ===== Content area ===== */
