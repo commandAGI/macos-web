@@ -37,32 +37,32 @@ const finder = create_app_config({
 	title: 'Finder',
 	resizable: true,
 
-	height: 550,
-	width: 800,
+	height: 560,
+	width: 900,
 });
 
 const safari = create_app_config({
 	title: 'Safari',
 	resizable: true,
 
-	height: 600,
-	width: 900,
+	height: 750,
+	width: 1100,
 });
 
 const terminal = create_app_config({
 	title: 'Terminal',
 	resizable: true,
 
-	height: 450,
-	width: 650,
+	height: 400,
+	width: 640,
 });
 
 const notes = create_app_config({
 	title: 'Notes',
 	resizable: true,
 
-	height: 550,
-	width: 750,
+	height: 600,
+	width: 950,
 });
 
 const messages = create_app_config({
@@ -70,15 +70,15 @@ const messages = create_app_config({
 	resizable: true,
 
 	height: 550,
-	width: 750,
+	width: 850,
 });
 
 const mail = create_app_config({
 	title: 'Mail',
 	resizable: true,
 
-	height: 600,
-	width: 900,
+	height: 650,
+	width: 1000,
 });
 
 const photos = create_app_config({
@@ -93,8 +93,8 @@ const music = create_app_config({
 	title: 'Music',
 	resizable: true,
 
-	height: 600,
-	width: 900,
+	height: 720,
+	width: 1150,
 });
 
 const maps = create_app_config({

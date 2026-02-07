@@ -850,6 +850,10 @@
 		display: flex;
 		align-items: center;
 		line-height: 1.35;
+		background: transparent;
+		border: none;
+		outline: none;
+		box-shadow: none;
 	}
 
 	.prompt {
@@ -862,19 +866,36 @@
 		position: relative;
 		display: flex;
 		align-items: center;
+		background: transparent;
+		border: none;
+		outline: none;
+		box-shadow: none;
 	}
 
 	input {
 		flex: 1;
-		background: none;
+		background: transparent;
 		border: none;
 		color: #f2f2f2;
 		font-family: inherit;
 		font-size: inherit;
 		padding: 0;
+		margin: 0;
 		outline: none;
+		box-shadow: none;
 		caret-color: transparent;
 		line-height: 1.35;
+		-webkit-appearance: none;
+		appearance: none;
+	}
+
+	input:focus,
+	input:focus-visible,
+	input:focus-within {
+		outline: none;
+		border: none;
+		box-shadow: none;
+		background: transparent;
 	}
 
 	.cursor-block {

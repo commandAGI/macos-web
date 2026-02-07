@@ -43,11 +43,11 @@
 
 	// --- Constants ---
 	const favorites: Favorite[] = [
-		{ name: 'Apple', url: 'https://www.apple.com', icon: '', color: '#555555' },
+		{ name: 'Apple', url: 'https://www.apple.com', icon: 'apple', color: '#555555' },
 		{ name: 'Google', url: 'https://www.google.com', icon: 'G', color: '#4285F4' },
 		{ name: 'YouTube', url: 'https://www.youtube.com', icon: '\u25B6', color: '#FF0000' },
 		{ name: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'W', color: '#636466' },
-		{ name: 'GitHub', url: 'https://github.com', icon: '', color: '#24292e' },
+		{ name: 'GitHub', url: 'https://github.com', icon: 'github', color: '#24292e' },
 		{ name: 'Reddit', url: 'https://www.reddit.com', icon: 'r/', color: '#FF4500' },
 		{ name: 'Twitter', url: 'https://twitter.com', icon: 'X', color: '#000000' },
 		{ name: 'Amazon', url: 'https://www.amazon.com', icon: 'a', color: '#FF9900' },
@@ -58,7 +58,7 @@
 	];
 
 	const frequently_visited: Favorite[] = [
-		{ name: 'GitHub - agi-inc', url: 'https://github.com/agi-inc', icon: '', color: '#24292e' },
+		{ name: 'GitHub - agi-inc', url: 'https://github.com/agi-inc', icon: 'github', color: '#24292e' },
 		{ name: 'Google Docs', url: 'https://docs.google.com', icon: 'D', color: '#4285F4' },
 		{ name: 'Hacker News', url: 'https://news.ycombinator.com', icon: 'Y', color: '#FF6600' },
 		{ name: 'Vercel', url: 'https://vercel.com', icon: 'V', color: '#000000' },
@@ -70,11 +70,11 @@
 		{
 			name: 'Favorites',
 			items: [
-				{ title: 'Apple', url: 'https://www.apple.com', icon: '', color: '#555555' },
+				{ title: 'Apple', url: 'https://www.apple.com', icon: 'apple', color: '#555555' },
 				{ title: 'Google', url: 'https://www.google.com', icon: 'G', color: '#4285F4' },
 				{ title: 'YouTube', url: 'https://www.youtube.com', icon: '\u25B6', color: '#FF0000' },
 				{ title: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'W', color: '#636466' },
-				{ title: 'GitHub', url: 'https://github.com', icon: '', color: '#24292e' },
+				{ title: 'GitHub', url: 'https://github.com', icon: 'github', color: '#24292e' },
 				{ title: 'Reddit', url: 'https://www.reddit.com', icon: 'r/', color: '#FF4500' },
 			],
 		},
@@ -749,9 +749,13 @@
 									onmouseleave={hide_status_url}
 								>
 									<span class="sidebar-bookmark-icon" style="background-color: {item.color}">
-										{#if item.icon === ''}
+										{#if item.icon === 'apple'}
 											<svg width="8" height="8" viewBox="0 0 20 20" fill="white">
 												<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.5) translate(5, 5)"/>
+											</svg>
+										{:else if item.icon === 'github'}
+											<svg width="8" height="8" viewBox="0 0 16 16" fill="white">
+												<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
 											</svg>
 										{:else}
 											<span style="font-size: 8px; font-weight: 700; color: white">{item.icon}</span>
@@ -783,9 +787,13 @@
 										onmouseleave={hide_status_url}
 									>
 										<div class="favorite-icon" style="background-color: {fav.color}">
-											{#if fav.icon === ''}
+											{#if fav.icon === 'apple'}
 												<svg width="24" height="24" viewBox="0 0 20 20" fill="white">
 													<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
+												</svg>
+											{:else if fav.icon === 'github'}
+												<svg width="24" height="24" viewBox="0 0 16 16" fill="white">
+													<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
 												</svg>
 											{:else}
 												<span class="favorite-letter">{fav.icon}</span>
@@ -816,9 +824,13 @@
 												</div>
 												<div class="frequent-site-body">
 													<div class="frequent-site-icon" style="background-color: {site.color}">
-														{#if site.icon === ''}
+														{#if site.icon === 'apple'}
 															<svg width="16" height="16" viewBox="0 0 20 20" fill="white">
 																<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
+															</svg>
+														{:else if site.icon === 'github'}
+															<svg width="16" height="16" viewBox="0 0 16 16" fill="white">
+																<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
 															</svg>
 														{:else}
 															<span class="frequent-letter">{site.icon}</span>
