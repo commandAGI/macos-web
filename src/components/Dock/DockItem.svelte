@@ -1,27 +1,3 @@
-<script module>
-	const baseWidth = 57.6;
-	const distanceLimit = baseWidth * 6;
-	const beyond_the_distance_limit = distanceLimit + 1;
-	const distanceInput = [
-		-distanceLimit,
-		-distanceLimit / 1.25,
-		-distanceLimit / 2,
-		0,
-		distanceLimit / 2,
-		distanceLimit / 1.25,
-		distanceLimit,
-	];
-	const widthOutput = [
-		baseWidth,
-		baseWidth * 1.1,
-		baseWidth * 1.414,
-		baseWidth * 2,
-		baseWidth * 1.414,
-		baseWidth * 1.1,
-		baseWidth,
-	];
-</script>
-
 <script lang="ts">
 	import { interpolate } from 'popmotion';
 	import { onDestroy, untrack } from 'svelte';
@@ -36,27 +12,81 @@
 		mouse_x,
 		app_id,
 		needs_update = false,
+		vertical = false,
 	}: {
 		mouse_x: number | null;
 		app_id: AppID;
 		needs_update?: boolean;
+		vertical?: boolean;
 	} = $props();
+
+	// Scale the base icon width proportionally to the dock size preference.
+	// Default dock_size is 48, which maps to the original 57.6px base width.
+	const default_base_width = 57.6;
+	const base_width = $derived((preferences.dock.size / 48) * default_base_width);
+
+	const distance_limit = $derived(base_width * 6);
+	const beyond_the_distance_limit = $derived(distance_limit + 1);
+
+	const get_distance_input = $derived([
+		-distance_limit,
+		-distance_limit / 1.25,
+		-distance_limit / 2,
+		0,
+		distance_limit / 2,
+		distance_limit / 1.25,
+		distance_limit,
+	]);
+
+	const get_width_output = $derived([
+		base_width,
+		base_width * 1.1,
+		base_width * 1.414,
+		base_width * 2,
+		base_width * 1.414,
+		base_width * 1.1,
+		base_width,
+	]);
+
+	// When magnification is disabled, all output values are the base width (no zoom effect).
+	const get_width_output_no_mag = $derived([
+		base_width,
+		base_width,
+		base_width,
+		base_width,
+		base_width,
+		base_width,
+		base_width,
+	]);
 
 	let image_el = $state<HTMLImageElement>();
 
-	let distance = $state(beyond_the_distance_limit);
+	let distance = $state(0);
 
-	const width_px = spring(baseWidth, {
+	// Initialise distance to beyond limit once derived values are ready.
+	$effect(() => {
+		beyond_the_distance_limit;
+		untrack(() => { distance = beyond_the_distance_limit; });
+	});
+
+	const width_px = spring(default_base_width, {
 		damping: 0.47,
 		stiffness: 0.12,
 	});
 
-	const get_width_from_distance = interpolate(distanceInput, widthOutput);
+	// Keep spring target in sync when base_width changes (e.g. slider drag)
+	$effect(() => {
+		base_width;
+		untrack(() => { $width_px = base_width; });
+	});
 
 	$effect(() => {
 		distance;
 
-		untrack(() => ($width_px = get_width_from_distance(distance)));
+		const output = preferences.dock.magnification ? get_width_output : get_width_output_no_mag;
+		const interp = interpolate(get_distance_input, output);
+
+		untrack(() => ($width_px = interp(distance)));
 	});
 
 	let raf: number;
@@ -64,13 +94,12 @@
 		if (image_el && mouse_x !== null) {
 			const rect = image_el.getBoundingClientRect();
 
-			// get the x coordinate of the img DOMElement's center
-			// the left x coordinate plus the half of the width
-			const img_center_x = rect.left + rect.width / 2;
+			// For vertical dock we compare along Y axis, for bottom dock along X axis.
+			const img_center = vertical
+				? rect.top + rect.height / 2
+				: rect.left + rect.width / 2;
 
-			// difference between the x coordinate value of the mouse pointer
-			// and the img center x coordinate value
-			const distance_delta = mouse_x - img_center_x;
+			const distance_delta = mouse_x - img_center;
 			distance = distance_delta;
 			return;
 		}
@@ -129,6 +158,24 @@
 	$effect(() => {
 		if (show_pwa_badge) bounceEffect();
 	});
+
+	// Bounce transform for vertical docks translates along X instead of Y.
+	const bounce_style = $derived(
+		vertical
+			? `translate(${$appOpenIconBounceTransform}px, 0)`
+			: `translate(0, ${$appOpenIconBounceTransform}px)`
+	);
+
+	// Tooltip position depends on dock orientation.
+	const tooltip_style_top = $derived(
+		vertical
+			? 'auto'
+			: preferences.reduced_motion ? '-50px' : '-35%'
+	);
+
+	const tooltip_style_left = $derived(
+		vertical ? '110%' : 'auto'
+	);
 </script>
 
 <button onclick={openApp} aria-label="Launch {title} app" class="dock-open-app-button {app_id}">
@@ -136,14 +183,16 @@
 		class="tooltip"
 		class:tooltip-enabled={!apps.is_being_dragged}
 		class:dark={preferences.theme.scheme === 'dark'}
-		style:top={preferences.reduced_motion ? '-50px' : '-35%'}
-		style:transform="translate(0, {$appOpenIconBounceTransform}px)"
+		class:tooltip-vertical={vertical}
+		style:top={tooltip_style_top}
+		style:left={tooltip_style_left}
+		style:transform={bounce_style}
 		use:elevation={'dock-tooltip'}
 	>
 		{title}
 	</p>
 
-	<span style:transform="translate(0, {$appOpenIconBounceTransform}px)">
+	<span style:transform={bounce_style}>
 		<img
 			bind:this={image_el}
 			src="/app-icons/{app_id}/256.webp"
@@ -153,10 +202,10 @@
 		/>
 	</span>
 
-	<div class="dot" style:--opacity={+apps.open[app_id]}></div>
+	<div class="dot" class:dot-vertical={vertical} style:--opacity={+apps.open[app_id]}></div>
 
 	{#if show_pwa_badge}
-		<div class="pwa-badge" style:transform="scale({$width_px / baseWidth})">1</div>
+		<div class="pwa-badge" style:transform="scale({$width_px / base_width})">1</div>
 	{/if}
 </button>
 
@@ -218,6 +267,12 @@
 		}
 	}
 
+	/* Tooltip positioned to the right for vertical docks */
+	.tooltip.tooltip-vertical {
+		top: 50%;
+		transform: translateY(-50%);
+	}
+
 	.dot {
 		height: 4px;
 		width: 4px;
@@ -230,6 +285,16 @@
 
 		opacity: var(--opacity);
 	}
+
+	/* For vertical docks, dot sits beside the icon instead of below */
+	.dot.dot-vertical {
+		position: absolute;
+		bottom: auto;
+		left: -2px;
+		top: 50%;
+		transform: translateY(-50%);
+	}
+
 	.pwa-badge {
 		position: absolute;
 		top: 1px;

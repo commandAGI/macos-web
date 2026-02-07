@@ -1,14 +1,20 @@
 <script lang="ts">
+	import { ls, rm, vfs_version, format_size } from '../../../state/vfs.svelte';
+	import { copy_files } from '../../../state/clipboard.svelte';
+	import { consume_pending_file } from '../../../state/file-opener.svelte';
+	import { notify } from '../../../state/notifications.svelte';
+
+	// ── Constants ──
+	const PICTURES_DIR = '/Users/user/Pictures';
+	const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']);
+
 	// ── Types ──
-	type Photo = {
-		id: number;
-		date: string;
-		date_label: string;
-		favorite: boolean;
-		albums: string[];
-		gradient: [string, string];
-		aspect: 'landscape' | 'portrait' | 'square';
-		media_type?: 'video' | 'selfie' | 'live' | 'panorama' | 'screenshot';
+	type PhotoEntry = {
+		name: string;
+		path: string;
+		size: number;
+		modified: Date;
+		subfolder: string; // '' for root, else subfolder name
 	};
 
 	type SidebarItem = {
@@ -29,170 +35,190 @@
 	let view_mode = $state<ViewMode>('grid');
 	let zoom_level = $state(120);
 	let search_query = $state('');
-	let selected_photo_id = $state<number | null>(null);
+	let selected_photo_path = $state<string | null>(null);
+
+	// ── File opener integration ──
+	// On mount, check if a file was opened via the file-opener service.
+	// If so, select that image and navigate to the appropriate sidebar section.
+	const pending_photo = consume_pending_file();
+	if (pending_photo) {
+		selected_photo_path = pending_photo.path;
+		// Determine the subfolder relative to Pictures to activate the right sidebar item
+		if (pending_photo.path.startsWith(PICTURES_DIR + '/')) {
+			const relative = pending_photo.path.slice(PICTURES_DIR.length + 1);
+			const parts = relative.split('/');
+			if (parts.length > 1) {
+				// File is in a subfolder, navigate to that folder view
+				active_item = `folder-${parts[0]}`;
+			} else {
+				// File is at root of Pictures, stay on main photos view
+				active_item = 'photos';
+			}
+		}
+	}
+
+	// ── Helpers ──
+
+	/** Get the lowercase extension including the dot. */
+	function get_extension(name: string): string {
+		const idx = name.lastIndexOf('.');
+		if (idx < 0) return '';
+		return name.slice(idx).toLowerCase();
+	}
+
+	/** Check whether a filename looks like a supported image. */
+	function is_image_file(name: string): boolean {
+		return IMAGE_EXTENSIONS.has(get_extension(name));
+	}
+
+	/** Deterministic hash of a string into a number. */
+	function hash_string(s: string): number {
+		let h = 0;
+		for (let i = 0; i < s.length; i++) {
+			h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+		}
+		return h >>> 0; // unsigned
+	}
+
+	/** Generate a pair of HSL colours from a filename for a gradient placeholder. */
+	function gradient_from_name(name: string): [string, string] {
+		const h = hash_string(name);
+		const hue1 = h % 360;
+		const hue2 = (hue1 + 40 + (h >> 10) % 60) % 360;
+		const sat1 = 55 + (h >> 4) % 30;
+		const sat2 = 55 + (h >> 8) % 30;
+		return [
+			`hsl(${hue1}, ${sat1}%, 55%)`,
+			`hsl(${hue2}, ${sat2}%, 45%)`,
+		];
+	}
+
+	/** Format a Date as a human-friendly month-year label. */
+	function date_label(d: Date): string {
+		const now = new Date();
+		if (
+			d.getFullYear() === now.getFullYear() &&
+			d.getMonth() === now.getMonth() &&
+			d.getDate() === now.getDate()
+		) {
+			return 'Today';
+		}
+		return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+	}
+
+	/** Recursively gather image files from a directory. */
+	function gather_images(dir_path: string, subfolder: string): PhotoEntry[] {
+		const entries: PhotoEntry[] = [];
+		const children = ls(dir_path);
+		for (const child of children) {
+			if (child.type === 'file' && is_image_file(child.name)) {
+				entries.push({
+					name: child.name,
+					path: `${dir_path}/${child.name}`,
+					size: child.size,
+					modified: child.modified,
+					subfolder,
+				});
+			} else if (child.type === 'dir') {
+				// Skip non-image directories like .photoslibrary
+				if (child.name.endsWith('.photoslibrary')) continue;
+				const sub_label = subfolder ? `${subfolder}/${child.name}` : child.name;
+				entries.push(...gather_images(`${dir_path}/${child.name}`, sub_label));
+			}
+		}
+		return entries;
+	}
 
 	// ── Sidebar ──
-	const sidebar_sections: SidebarSection[] = [
+	const static_sidebar: SidebarSection[] = [
 		{
 			title: 'Library',
 			items: [
 				{ id: 'photos', label: 'Photos', icon: 'photos' },
-				{ id: 'favorites', label: 'Favorites', icon: 'favorites' },
 				{ id: 'recents', label: 'Recents', icon: 'recents' },
-				{ id: 'imports', label: 'Imports', icon: 'imports' },
-			],
-		},
-		{
-			title: 'Albums',
-			items: [
-				{ id: 'album-vacations', label: 'Vacations', icon: 'album' },
-				{ id: 'album-family', label: 'Family', icon: 'album' },
-				{ id: 'album-pets', label: 'Pets', icon: 'album' },
-				{ id: 'album-screenshots', label: 'Screenshots', icon: 'album' },
-				{ id: 'album-selfies', label: 'Selfies', icon: 'album' },
-			],
-		},
-		{
-			title: 'Media Types',
-			items: [
-				{ id: 'media-videos', label: 'Videos', icon: 'video' },
-				{ id: 'media-selfies', label: 'Selfies', icon: 'selfie' },
-				{ id: 'media-live', label: 'Live Photos', icon: 'live' },
-				{ id: 'media-panoramas', label: 'Panoramas', icon: 'panorama' },
-				{ id: 'media-screenshots', label: 'Screenshots', icon: 'screenshot' },
 			],
 		},
 	];
 
-	// ── Photo Data ──
-	const photos: Photo[] = [
-		// Today
-		{ id: 1, date: '2024-01-15', date_label: 'Today', favorite: true, albums: ['Vacations'], gradient: ['#ff6b6b', '#ee5a24'], aspect: 'landscape' },
-		{ id: 2, date: '2024-01-15', date_label: 'Today', favorite: false, albums: ['Family'], gradient: ['#0abde3', '#48dbfb'], aspect: 'square' },
-		{ id: 3, date: '2024-01-15', date_label: 'Today', favorite: false, albums: [], gradient: ['#10ac84', '#1dd1a1'], aspect: 'portrait' },
-		{ id: 4, date: '2024-01-15', date_label: 'Today', favorite: true, albums: ['Vacations', 'Family'], gradient: ['#f368e0', '#ff9ff3'], aspect: 'landscape', media_type: 'live' },
-		{ id: 5, date: '2024-01-15', date_label: 'Today', favorite: false, albums: ['Selfies'], gradient: ['#ff9f43', '#feca57'], aspect: 'square', media_type: 'selfie' },
-		{ id: 6, date: '2024-01-15', date_label: 'Today', favorite: false, albums: [], gradient: ['#5f27cd', '#a55eea'], aspect: 'landscape', media_type: 'video' },
+	/** Build the sidebar dynamically from the folder names found in VFS. */
+	const sidebar_sections = $derived.by(() => {
+		void vfs_version.value; // subscribe to reactivity
+		const folders: SidebarItem[] = [];
+		const children = ls(PICTURES_DIR);
+		for (const child of children) {
+			if (child.type === 'dir' && !child.name.endsWith('.photoslibrary')) {
+				folders.push({
+					id: `folder-${child.name}`,
+					label: child.name,
+					icon: 'album',
+				});
+			}
+		}
+		if (folders.length === 0) return static_sidebar;
+		return [
+			...static_sidebar,
+			{ title: 'Folders', items: folders },
+		];
+	});
 
-		// January 2024
-		{ id: 7, date: '2024-01-10', date_label: 'January 2024', favorite: false, albums: ['Pets'], gradient: ['#01a3a4', '#00d2d3'], aspect: 'square' },
-		{ id: 8, date: '2024-01-10', date_label: 'January 2024', favorite: true, albums: ['Pets'], gradient: ['#e58e26', '#f7d794'], aspect: 'landscape' },
-		{ id: 9, date: '2024-01-09', date_label: 'January 2024', favorite: false, albums: ['Screenshots'], gradient: ['#d63031', '#e17055'], aspect: 'portrait', media_type: 'screenshot' },
-		{ id: 10, date: '2024-01-08', date_label: 'January 2024', favorite: false, albums: ['Family'], gradient: ['#6c5ce7', '#a29bfe'], aspect: 'landscape' },
-		{ id: 11, date: '2024-01-07', date_label: 'January 2024', favorite: true, albums: ['Vacations'], gradient: ['#00b894', '#55efc4'], aspect: 'square', media_type: 'live' },
-		{ id: 12, date: '2024-01-06', date_label: 'January 2024', favorite: false, albums: [], gradient: ['#fdcb6e', '#e17055'], aspect: 'portrait' },
-		{ id: 13, date: '2024-01-05', date_label: 'January 2024', favorite: false, albums: ['Family'], gradient: ['#e84393', '#fd79a8'], aspect: 'landscape' },
-		{ id: 14, date: '2024-01-04', date_label: 'January 2024', favorite: false, albums: [], gradient: ['#0984e3', '#74b9ff'], aspect: 'square', media_type: 'video' },
-		{ id: 15, date: '2024-01-03', date_label: 'January 2024', favorite: true, albums: ['Selfies'], gradient: ['#636e72', '#b2bec3'], aspect: 'portrait', media_type: 'selfie' },
-
-		// December 2023
-		{ id: 16, date: '2023-12-25', date_label: 'December 2023', favorite: true, albums: ['Family', 'Vacations'], gradient: ['#c0392b', '#e74c3c'], aspect: 'landscape' },
-		{ id: 17, date: '2023-12-25', date_label: 'December 2023', favorite: true, albums: ['Family'], gradient: ['#27ae60', '#2ecc71'], aspect: 'square' },
-		{ id: 18, date: '2023-12-24', date_label: 'December 2023', favorite: false, albums: ['Family'], gradient: ['#2980b9', '#3498db'], aspect: 'portrait' },
-		{ id: 19, date: '2023-12-23', date_label: 'December 2023', favorite: false, albums: [], gradient: ['#8e44ad', '#9b59b6'], aspect: 'landscape', media_type: 'panorama' },
-		{ id: 20, date: '2023-12-20', date_label: 'December 2023', favorite: false, albums: ['Pets'], gradient: ['#d35400', '#e67e22'], aspect: 'square' },
-		{ id: 21, date: '2023-12-18', date_label: 'December 2023', favorite: true, albums: ['Vacations'], gradient: ['#16a085', '#1abc9c'], aspect: 'landscape' },
-		{ id: 22, date: '2023-12-15', date_label: 'December 2023', favorite: false, albums: [], gradient: ['#f39c12', '#f1c40f'], aspect: 'portrait', media_type: 'live' },
-		{ id: 23, date: '2023-12-12', date_label: 'December 2023', favorite: false, albums: ['Screenshots'], gradient: ['#2c3e50', '#34495e'], aspect: 'landscape', media_type: 'screenshot' },
-
-		// November 2023
-		{ id: 24, date: '2023-11-28', date_label: 'November 2023', favorite: false, albums: ['Family'], gradient: ['#e056fd', '#be2edd'], aspect: 'square' },
-		{ id: 25, date: '2023-11-25', date_label: 'November 2023', favorite: true, albums: ['Vacations'], gradient: ['#22a6b3', '#7ed6df'], aspect: 'landscape' },
-		{ id: 26, date: '2023-11-22', date_label: 'November 2023', favorite: false, albums: [], gradient: ['#eb4d4b', '#ff7979'], aspect: 'portrait', media_type: 'video' },
-		{ id: 27, date: '2023-11-18', date_label: 'November 2023', favorite: false, albums: ['Pets'], gradient: ['#6ab04c', '#badc58'], aspect: 'landscape' },
-		{ id: 28, date: '2023-11-15', date_label: 'November 2023', favorite: true, albums: ['Selfies'], gradient: ['#4834d4', '#686de0'], aspect: 'square', media_type: 'selfie' },
-		{ id: 29, date: '2023-11-10', date_label: 'November 2023', favorite: false, albums: [], gradient: ['#f9ca24', '#f0932b'], aspect: 'portrait' },
-		{ id: 30, date: '2023-11-05', date_label: 'November 2023', favorite: false, albums: ['Family'], gradient: ['#30336b', '#535c68'], aspect: 'landscape' },
-
-		// October 2023
-		{ id: 31, date: '2023-10-30', date_label: 'October 2023', favorite: false, albums: [], gradient: ['#e55039', '#f8c291'], aspect: 'square', media_type: 'panorama' },
-		{ id: 32, date: '2023-10-25', date_label: 'October 2023', favorite: true, albums: ['Vacations'], gradient: ['#3c6382', '#60a3bc'], aspect: 'landscape' },
-		{ id: 33, date: '2023-10-20', date_label: 'October 2023', favorite: false, albums: ['Pets'], gradient: ['#b71540', '#eb2f06'], aspect: 'portrait' },
-		{ id: 34, date: '2023-10-15', date_label: 'October 2023', favorite: false, albums: [], gradient: ['#0c2461', '#1e3799'], aspect: 'landscape', media_type: 'video' },
-		{ id: 35, date: '2023-10-10', date_label: 'October 2023', favorite: true, albums: ['Selfies'], gradient: ['#e58e26', '#fa983a'], aspect: 'square', media_type: 'selfie' },
-		{ id: 36, date: '2023-10-05', date_label: 'October 2023', favorite: false, albums: ['Screenshots'], gradient: ['#079992', '#38ada9'], aspect: 'portrait', media_type: 'screenshot' },
-
-		// September 2023
-		{ id: 37, date: '2023-09-28', date_label: 'September 2023', favorite: false, albums: ['Family'], gradient: ['#c44569', '#f78fb3'], aspect: 'landscape', media_type: 'live' },
-		{ id: 38, date: '2023-09-20', date_label: 'September 2023', favorite: true, albums: ['Vacations'], gradient: ['#574b90', '#786fa6'], aspect: 'square' },
-		{ id: 39, date: '2023-09-15', date_label: 'September 2023', favorite: false, albums: [], gradient: ['#e15f41', '#f19066'], aspect: 'portrait' },
-		{ id: 40, date: '2023-09-10', date_label: 'September 2023', favorite: false, albums: ['Pets'], gradient: ['#303952', '#596275'], aspect: 'landscape' },
-		{ id: 41, date: '2023-09-05', date_label: 'September 2023', favorite: true, albums: [], gradient: ['#1B9CFC', '#25CCF7'], aspect: 'square' },
-		{ id: 42, date: '2023-09-01', date_label: 'September 2023', favorite: false, albums: ['Family'], gradient: ['#FD7272', '#FC427B'], aspect: 'portrait', media_type: 'video' },
-	];
+	// ── Photo Data (derived from VFS) ──
+	const all_photos = $derived.by((): PhotoEntry[] => {
+		void vfs_version.value; // subscribe to reactivity
+		const entries = gather_images(PICTURES_DIR, '');
+		// Sort newest first
+		entries.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+		return entries;
+	});
 
 	// ── Derived ──
 	const current_title = $derived.by(() => {
 		if (active_item === 'photos') return 'Photos';
-		if (active_item === 'favorites') return 'Favorites';
 		if (active_item === 'recents') return 'Recents';
-		if (active_item === 'imports') return 'Imports';
-		if (active_item.startsWith('album-')) {
-			const album_name = active_item.replace('album-', '');
-			const section = sidebar_sections.find(s => s.title === 'Albums');
-			return section?.items.find(i => i.id === active_item)?.label ?? album_name;
-		}
-		if (active_item.startsWith('media-')) {
-			const section = sidebar_sections.find(s => s.title === 'Media Types');
-			return section?.items.find(i => i.id === active_item)?.label ?? 'Media';
+		if (active_item.startsWith('folder-')) {
+			return active_item.replace('folder-', '');
 		}
 		return 'Photos';
 	});
 
 	const filtered_photos = $derived.by(() => {
-		let result = photos;
+		let result = all_photos;
 
 		// Search filter
 		if (search_query.trim()) {
 			const q = search_query.toLowerCase();
-			result = result.filter(p =>
-				p.date_label.toLowerCase().includes(q) ||
-				p.albums.some(a => a.toLowerCase().includes(q)) ||
-				(p.media_type && p.media_type.toLowerCase().includes(q))
+			result = result.filter(
+				(p) =>
+					p.name.toLowerCase().includes(q) ||
+					p.subfolder.toLowerCase().includes(q),
 			);
 		}
 
 		// Section filter
-		if (active_item === 'favorites') {
-			result = result.filter(p => p.favorite);
-		} else if (active_item === 'recents') {
+		if (active_item === 'recents') {
 			result = result.slice(0, 15);
-		} else if (active_item === 'imports') {
-			result = result.slice(0, 8);
-		} else if (active_item.startsWith('album-')) {
-			const album_name = sidebar_sections
-				.find(s => s.title === 'Albums')
-				?.items.find(i => i.id === active_item)?.label;
-			if (album_name) {
-				result = result.filter(p => p.albums.includes(album_name));
-			}
-		} else if (active_item === 'media-videos') {
-			result = result.filter(p => p.media_type === 'video');
-		} else if (active_item === 'media-selfies') {
-			result = result.filter(p => p.media_type === 'selfie');
-		} else if (active_item === 'media-live') {
-			result = result.filter(p => p.media_type === 'live');
-		} else if (active_item === 'media-panoramas') {
-			result = result.filter(p => p.media_type === 'panorama');
-		} else if (active_item === 'media-screenshots') {
-			result = result.filter(p => p.media_type === 'screenshot');
+		} else if (active_item.startsWith('folder-')) {
+			const folder_name = active_item.replace('folder-', '');
+			result = result.filter(
+				(p) => p.subfolder === folder_name || p.subfolder.startsWith(folder_name + '/'),
+			);
 		}
 
 		return result;
 	});
 
 	const grouped_photos = $derived.by(() => {
-		const groups: { label: string; photos: Photo[] }[] = [];
-		const group_map = new Map<string, Photo[]>();
+		const groups: { label: string; photos: PhotoEntry[] }[] = [];
+		const group_map = new Map<string, PhotoEntry[]>();
 
 		for (const photo of filtered_photos) {
-			const existing = group_map.get(photo.date_label);
+			const label = date_label(photo.modified);
+			const existing = group_map.get(label);
 			if (existing) {
 				existing.push(photo);
 			} else {
 				const arr = [photo];
-				group_map.set(photo.date_label, arr);
-				groups.push({ label: photo.date_label, photos: arr });
+				group_map.set(label, arr);
+				groups.push({ label, photos: arr });
 			}
 		}
 
@@ -201,23 +227,37 @@
 
 	const photo_count = $derived(filtered_photos.length);
 
-	function get_aspect_style(aspect: Photo['aspect']): string {
-		switch (aspect) {
-			case 'landscape':
-				return 'grid-column: span 1; aspect-ratio: 4/3;';
-			case 'portrait':
-				return 'grid-column: span 1; aspect-ratio: 3/4;';
-			case 'square':
-			default:
-				return 'grid-column: span 1; aspect-ratio: 1;';
+	// ── Actions ──
+	function delete_photo(path: string): void {
+		const filename = path.split('/').pop() ?? 'Photo';
+		rm(path);
+		if (selected_photo_path === path) {
+			selected_photo_path = null;
+		}
+		notify({
+			app_name: 'Photos',
+			app_icon: '/app-icons/photos/256.webp',
+			title: '1 Photo Deleted',
+			body: filename,
+		});
+	}
+
+	function handle_photos_keydown(e: KeyboardEvent) {
+		const meta = e.metaKey || e.ctrlKey;
+		if (meta && e.key === 'c' && selected_photo_path) {
+			e.preventDefault();
+			copy_files([selected_photo_path], 'copy');
 		}
 	}
 
-	function get_gradient_style(photo: Photo): string {
-		return `background: linear-gradient(135deg, ${photo.gradient[0]}, ${photo.gradient[1]});`;
+	function get_gradient_style(photo: PhotoEntry): string {
+		const [c1, c2] = gradient_from_name(photo.name);
+		return `background: linear-gradient(135deg, ${c1}, ${c2});`;
 	}
 
 </script>
+
+<svelte:window onkeydown={handle_photos_keydown} />
 
 <section class="container">
 	<!-- Toolbar -->
@@ -303,29 +343,15 @@
 						<button
 							class="sidebar-item"
 							class:active={active_item === item.id}
-							onclick={() => { active_item = item.id; selected_photo_id = null; }}
+							onclick={() => { active_item = item.id; selected_photo_path = null; }}
 						>
 							<span class="sidebar-icon">
 								{#if item.icon === 'photos'}
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-								{:else if item.icon === 'favorites'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
 								{:else if item.icon === 'recents'}
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-								{:else if item.icon === 'imports'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
 								{:else if item.icon === 'album'}
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4l2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z"/></svg>
-								{:else if item.icon === 'video'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
-								{:else if item.icon === 'selfie'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-								{:else if item.icon === 'live'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3.2"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
-								{:else if item.icon === 'panorama'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23 18V6c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zM8.5 12.5l2.5 3.01L14.5 11l4.5 6H5l3.5-4.5z"/></svg>
-								{:else if item.icon === 'screenshot'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
 								{/if}
 							</span>
 							<span class="sidebar-label">{item.label}</span>
@@ -348,12 +374,8 @@
 					<p class="empty-subtext">
 						{#if search_query}
 							No photos match "{search_query}"
-						{:else if active_item === 'favorites'}
-							You haven't marked any photos as favorites yet
-						{:else if active_item === 'imports'}
-							No recently imported photos
 						{:else}
-							No photos in this collection
+							No image files in {PICTURES_DIR}
 						{/if}
 					</p>
 				</div>
@@ -365,28 +387,18 @@
 							<span class="date-count">{group.photos.length}</span>
 						</div>
 						<div class="photo-grid" style="--thumb-size: {zoom_level}px;">
-							{#each group.photos as photo (photo.id)}
+							{#each group.photos as photo (photo.path)}
 								<button
 									class="photo-tile"
-									class:selected={selected_photo_id === photo.id}
-									style="{get_gradient_style(photo)} {get_aspect_style(photo.aspect)}"
-									onclick={() => selected_photo_id = selected_photo_id === photo.id ? null : photo.id}
+									class:selected={selected_photo_path === photo.path}
+									style="{get_gradient_style(photo)} aspect-ratio: 1;"
+									onclick={() => selected_photo_path = selected_photo_path === photo.path ? null : photo.path}
+									oncontextmenu={(e) => { e.preventDefault(); delete_photo(photo.path); }}
+									title="{photo.name} ({format_size(photo.size)})\nRight-click to delete"
 								>
-									{#if photo.favorite}
-										<span class="favorite-badge">
-											<svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-										</span>
-									{/if}
-									{#if photo.media_type === 'video'}
-										<span class="media-badge video-badge">
-											<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-										</span>
-									{:else if photo.media_type === 'live'}
-										<span class="media-badge live-badge">LIVE</span>
-									{:else if photo.media_type === 'panorama'}
-										<span class="media-badge pano-badge">
-											<svg width="14" height="10" viewBox="0 0 24 16" fill="white"><path d="M23 14V2c0-.55-.45-1-1-1H2c-.55 0-1 .45-1 1v12c0 .55.45 1 1 1h20c.55 0 1-.45 1-1zM8 10l2.5 3L14 9l4.5 6H3l5-5z"/></svg>
-										</span>
+									<span class="photo-name-overlay">{photo.name}</span>
+									{#if photo.subfolder}
+										<span class="subfolder-badge">{photo.subfolder}</span>
 									{/if}
 								</button>
 							{/each}
@@ -398,27 +410,35 @@
 				<div class="photo-list">
 					<div class="list-header">
 						<span class="list-col-thumb"></span>
-						<span class="list-col-name">Date</span>
-						<span class="list-col-album">Albums</span>
-						<span class="list-col-type">Type</span>
+						<span class="list-col-name">Name</span>
+						<span class="list-col-album">Folder</span>
+						<span class="list-col-type">Size</span>
 						<span class="list-col-fav"></span>
 					</div>
-					{#each filtered_photos as photo (photo.id)}
+					{#each filtered_photos as photo (photo.path)}
 						<button
 							class="list-row"
-							class:selected={selected_photo_id === photo.id}
-							onclick={() => selected_photo_id = selected_photo_id === photo.id ? null : photo.id}
+							class:selected={selected_photo_path === photo.path}
+							onclick={() => selected_photo_path = selected_photo_path === photo.path ? null : photo.path}
 						>
 							<span class="list-col-thumb">
 								<span class="list-thumb" style="{get_gradient_style(photo)}"></span>
 							</span>
-							<span class="list-col-name">{photo.date_label} - {photo.date}</span>
-							<span class="list-col-album">{photo.albums.join(', ') || '--'}</span>
-							<span class="list-col-type">{photo.media_type ?? 'photo'}</span>
+							<span class="list-col-name">{photo.name}</span>
+							<span class="list-col-album">{photo.subfolder || '/'}</span>
+							<span class="list-col-type">{format_size(photo.size)}</span>
 							<span class="list-col-fav">
-								{#if photo.favorite}
-									<svg width="12" height="12" viewBox="0 0 24 24" fill="#ff2d55"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-								{/if}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span
+									class="delete-btn"
+									role="button"
+									tabindex="-1"
+									onclick={(e) => { e.stopPropagation(); delete_photo(photo.path); }}
+									onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); delete_photo(photo.path); } }}
+									title="Delete"
+								>
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+								</span>
 							</span>
 						</button>
 					{/each}
@@ -757,6 +777,9 @@
 		position: relative;
 		overflow: hidden;
 		transition: transform 0.1s, box-shadow 0.15s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 
 		&:hover {
 			transform: scale(1.03);
@@ -773,6 +796,41 @@
 		:global(body.dark) &.selected {
 			box-shadow: 0 0 0 3px #0a84ff;
 		}
+	}
+
+	/* Photo name overlay on thumbnails */
+	.photo-name-overlay {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		padding: 14px 4px 4px;
+		background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+		color: white;
+		font-size: 9px;
+		line-height: 1.2;
+		text-align: center;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		pointer-events: none;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+	}
+
+	/* Subfolder badge */
+	.subfolder-badge {
+		position: absolute;
+		top: 4px;
+		left: 4px;
+		font-size: 8px;
+		font-weight: 700;
+		color: white;
+		background: rgba(0, 0, 0, 0.4);
+		backdrop-filter: blur(4px);
+		padding: 1px 4px;
+		border-radius: 3px;
+		letter-spacing: 0.3px;
+		pointer-events: none;
 	}
 
 	/* Photo badges */
@@ -944,5 +1002,22 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	.delete-btn {
+		border: none;
+		background: none;
+		color: #86868b;
+		cursor: pointer;
+		padding: 2px;
+		border-radius: 3px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+
+		&:hover {
+			color: #ff3b30;
+			background: rgba(255, 59, 48, 0.1);
+		}
 	}
 </style>

@@ -13,6 +13,15 @@ export type Theme = {
 	primaryColor: keyof typeof colors;
 };
 
+export type DockPosition = 'bottom' | 'left' | 'right';
+
+export type DockSettings = {
+	size: number;
+	magnification: boolean;
+	position: DockPosition;
+	auto_hide: boolean;
+};
+
 export const preferences = persisted('macos:preferences', {
 	reduced_motion: matchMedia('(prefers-reduced-motion)').matches,
 	theme: {
@@ -24,6 +33,12 @@ export const preferences = persisted('macos:preferences', {
 		id: 'ventura',
 		canControlTheme: true,
 	} as WallpaperSettings,
+	dock: {
+		size: 48,
+		magnification: true,
+		position: 'bottom',
+		auto_hide: false,
+	} as DockSettings,
 });
 
 $effect.root(() => {

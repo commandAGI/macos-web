@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { copy_text } from '../../../state/clipboard.svelte';
+	import { notify } from '../../../state/notifications.svelte';
+
 	const {
 		is_being_dragged,
 	}: {
@@ -351,6 +354,12 @@
 				clearInterval(interval);
 				if (tabs[tab_index]) {
 					tabs[tab_index] = { ...tabs[tab_index], loading: false, load_progress: 100 };
+					notify({
+						app_name: 'Safari',
+						app_icon: '/app-icons/safari/256.webp',
+						title: 'Page Loaded',
+						body: tabs[tab_index].display_url,
+					});
 				}
 				const timeout = setTimeout(() => {
 					if (tabs[tab_index]) {
@@ -492,6 +501,11 @@
 				url_input_value = active_tab.is_start_page ? '' : active_tab.display_url;
 			}
 			(e.target as HTMLInputElement).blur();
+		} else if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+			// Copy full URL to shared clipboard when address bar is focused
+			if (active_tab && !active_tab.is_start_page && active_tab.url) {
+				copy_text(active_tab.url);
+			}
 		}
 	}
 
@@ -509,6 +523,15 @@
 		show_sidebar = false;
 	}
 
+	function handle_safari_keydown(e: KeyboardEvent) {
+		const meta = e.metaKey || e.ctrlKey;
+		if (meta && e.key === 'l') {
+			// Cmd+L: focus address bar (standard Safari shortcut)
+			e.preventDefault();
+			url_input_el?.focus();
+		}
+	}
+
 	function show_status_url(url: string) {
 		try {
 			const u = new URL(url);
@@ -522,6 +545,8 @@
 		status_bar_url = '';
 	}
 </script>
+
+<svelte:window onkeydown={handle_safari_keydown} />
 
 <section class="container" class:private={is_private_browsing}>
 	<!-- Unified toolbar area (tab bar + nav bar) -->

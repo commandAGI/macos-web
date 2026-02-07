@@ -1,13 +1,34 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { addMonths, format } from 'date-fns';
 	import LeftArrow from '~icons/ic/round-chevron-left';
 	import RightArrow from '~icons/ic/round-chevron-right';
 	import { preferences } from '🍎/state/preferences.svelte.ts';
+	import { notify } from '🍎/state/notifications.svelte.ts';
 	import MonthView from './MonthView.svelte';
 
 	const { view = 'month' }: { view?: 'year' | 'month' | 'week' | 'day' } = $props();
 
 	let selected_date = $state(new Date());
+
+	// Seed events for the current day (static demo data)
+	const today_events = [
+		{ time: '9:00 AM', title: 'Team Standup' },
+		{ time: '11:30 AM', title: 'Design Review' },
+		{ time: '2:00 PM', title: '1:1 with Manager' },
+	];
+
+	onMount(() => {
+		const count = today_events.length;
+		if (count > 0) {
+			notify({
+				app_name: 'Calendar',
+				app_icon: '/app-icons/calendar/256.webp',
+				title: `You have ${count} events today`,
+				body: today_events.map(e => `${e.time} ${e.title}`).join(', '),
+			});
+		}
+	});
 
 	function goToToday() {
 		selected_date = new Date();

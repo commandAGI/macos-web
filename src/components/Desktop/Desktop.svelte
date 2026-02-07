@@ -1,5 +1,6 @@
 <script>
 	import Dock from '../Dock/Dock.svelte';
+	import NotificationBanner from '../NotificationBanner.svelte';
 	import TopBar from '../TopBar/TopBar.svelte';
 	import Wallpaper from '../apps/WallpaperApp/Wallpaper.svelte';
 	import BootupScreen from './BootupScreen.svelte';
@@ -27,6 +28,8 @@
 		<WindowsArea />
 		<Dock />
 	</main>
+
+	<NotificationBanner />
 
 	<Wallpaper />
 	<BootupScreen />

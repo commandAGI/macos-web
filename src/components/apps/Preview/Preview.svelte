@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { consume_pending_file } from '../../../state/file-opener.svelte';
+
 	// ── Types ──
 	type Page = {
 		id: number;
@@ -9,8 +11,24 @@
 	type ViewMode = 'single' | 'continuous' | 'two-page';
 	type MarkupTool = 'none' | 'text' | 'shapes' | 'signature' | 'highlight';
 
+	// ── File opener integration ──
+	type OpenedFile = { path: string; content?: string } | null;
+	let opened_file = $state<OpenedFile>(null);
+
+	// On mount, check if a file was opened via the file-opener service
+	const pending = consume_pending_file();
+	if (pending) {
+		opened_file = pending;
+	}
+
+	/** Determine whether the opened file is an image by extension. */
+	function is_image_ext(path: string): boolean {
+		const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+		return ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svg', '.heic', '.tiff'].includes(ext);
+	}
+
 	// ── Data ──
-	const pages: Page[] = [
+	const default_pages: Page[] = [
 		{ id: 1, title: 'Cover', render: 'title' },
 		{ id: 2, title: 'Executive Summary', render: 'summary' },
 		{ id: 3, title: 'Financial Highlights', render: 'financials' },
@@ -36,6 +54,9 @@
 		{ label: 'Q4', revenue: 78, expenses: 42 },
 	];
 
+	// ── Derived: use opened file or default demo content ──
+	const pages = $derived(opened_file ? [] as Page[] : default_pages);
+
 	// ── State ──
 	let zoom_level = $state(100);
 	let active_page = $state(0);
@@ -46,8 +67,10 @@
 	let search_query = $state('');
 	let search_visible = $state(false);
 
-	const doc_title = 'Annual Report 2024.pdf';
-	const total_pages = pages.length;
+	const doc_title = $derived(
+		opened_file ? opened_file.path.split('/').pop() ?? 'Untitled' : 'Annual Report 2024.pdf'
+	);
+	const total_pages = $derived(opened_file ? 1 : pages.length);
 
 	// ── Derived ──
 	let page_label = $derived(`Page ${active_page + 1} of ${total_pages}`);
@@ -300,7 +323,40 @@
 				style:transform="scale({zoom_level / 100})"
 				style:transform-origin="top center"
 			>
-				{#if view_mode === 'single'}
+				{#if opened_file}
+					<!-- Opened file content -->
+					<div class="document-page">
+						<div class="page-paper">
+							{#if is_image_ext(opened_file.path)}
+								<div class="opened-file-image">
+									<div class="image-placeholder">
+										<svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+											<rect x="2" y="2" width="20" height="20" rx="2"/>
+											<circle cx="8.5" cy="8.5" r="2.5"/>
+											<path d="m21 15-5-5L5 21"/>
+										</svg>
+										<span class="image-filename">{opened_file.path.split('/').pop()}</span>
+									</div>
+								</div>
+							{:else if opened_file.content}
+								<div class="opened-file-text">
+									<pre class="file-content-pre">{opened_file.content}</pre>
+								</div>
+							{:else}
+								<div class="opened-file-image">
+									<div class="image-placeholder">
+										<svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+											<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+											<polyline points="14 2 14 8 20 8"/>
+										</svg>
+										<span class="image-filename">{opened_file.path.split('/').pop()}</span>
+									</div>
+								</div>
+							{/if}
+							<div class="page-number">1</div>
+						</div>
+					</div>
+				{:else if view_mode === 'single'}
 					<!-- Single page mode -->
 					<div class="document-page" id="preview-page-{active_page}">
 						{@render page_content(pages[active_page])}
@@ -1320,5 +1376,49 @@
 
 	.info-title {
 		font-weight: 500;
+	}
+
+	/* ── Opened file content ── */
+	.opened-file-image {
+		width: 540px;
+		min-height: 700px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.image-placeholder {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 16px;
+		padding: 40px;
+	}
+
+	.image-filename {
+		font-size: 14px;
+		font-weight: 500;
+		color: #6e6e73;
+		max-width: 400px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-align: center;
+	}
+
+	.opened-file-text {
+		padding: 30px 35px 60px;
+		min-height: 700px;
+	}
+
+	.file-content-pre {
+		font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+		font-size: 12px;
+		line-height: 1.6;
+		color: #1d1d1f;
+		white-space: pre-wrap;
+		word-wrap: break-word;
+		margin: 0;
+		tab-size: 4;
 	}
 </style>

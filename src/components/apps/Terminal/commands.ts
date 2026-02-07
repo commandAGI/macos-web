@@ -1,12 +1,13 @@
 // Command implementations for the Terminal app
+// Uses the shared VFS module instead of the local virtual-fs.
 
+import type { FSNode } from '../../../state/vfs.svelte';
 import {
-	type FSNode,
-	resolve_path,
-	get_parent_dir,
+	vfs_root,
 	format_size,
 	format_date_short,
-} from './virtual-fs';
+} from '../../../state/vfs.svelte';
+import { resolve_path, get_parent_dir } from './virtual-fs';
 
 // ANSI-style color tags that get rendered as HTML spans
 // We use a simple tag system: <c:color>text</c>
@@ -17,7 +18,6 @@ export function colorize(text: string, color: string): string {
 
 export interface TerminalState {
 	cwd: string;
-	fs_root: Map<string, FSNode>;
 	history: string[];
 	env: Record<string, string>;
 }
@@ -37,7 +37,7 @@ function cmd_ls(args: string[], state: TerminalState): CommandResult {
 	// Find path argument (non-flag)
 	const path_arg = args.find(a => !a.startsWith('-')) || '.';
 	const target = path_arg === '.' ? state.cwd : path_arg;
-	const { node } = resolve_path(state.fs_root, state.cwd, target);
+	const { node } = resolve_path(vfs_root, state.cwd, target);
 
 	if (!node) {
 		return { lines: [`ls: ${path_arg}: No such file or directory`] };
@@ -163,7 +163,7 @@ function cmd_cd(args: string[], state: TerminalState): CommandResult {
 		return { lines: [old], new_cwd: old };
 	}
 
-	const { node, absolute_path } = resolve_path(state.fs_root, state.cwd, target);
+	const { node, absolute_path } = resolve_path(vfs_root, state.cwd, target);
 
 	if (!node) {
 		return { lines: [`cd: no such file or directory: ${target}`] };
@@ -195,7 +195,7 @@ function cmd_cat(args: string[], state: TerminalState): CommandResult {
 	const all_lines: string[] = [];
 
 	for (const file_path of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, file_path);
+		const { node } = resolve_path(vfs_root, state.cwd, file_path);
 
 		if (!node) {
 			all_lines.push(`cat: ${file_path}: No such file or directory`);
@@ -251,13 +251,13 @@ function cmd_mkdir(args: string[], state: TerminalState): CommandResult {
 	}
 
 	for (const dir_path of dir_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, dir_path);
+		const { node } = resolve_path(vfs_root, state.cwd, dir_path);
 		if (node) {
 			return { lines: [`mkdir: ${dir_path}: File exists`] };
 		}
 
-		const abs = resolve_path(state.fs_root, state.cwd, dir_path).absolute_path;
-		const { parent } = get_parent_dir(state.fs_root, abs);
+		const abs = resolve_path(vfs_root, state.cwd, dir_path).absolute_path;
+		const { parent } = get_parent_dir(vfs_root, abs);
 
 		if (!parent || parent.type !== 'dir' || !parent.children) {
 			if (!make_parents) {
@@ -291,14 +291,14 @@ function cmd_touch(args: string[], state: TerminalState): CommandResult {
 	}
 
 	for (const file_path of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, file_path);
+		const { node } = resolve_path(vfs_root, state.cwd, file_path);
 		if (node) {
 			node.modified = new Date();
 			continue;
 		}
 
-		const abs_path = resolve_path(state.fs_root, state.cwd, file_path).absolute_path;
-		const { parent } = get_parent_dir(state.fs_root, abs_path);
+		const abs_path = resolve_path(vfs_root, state.cwd, file_path).absolute_path;
+		const { parent } = get_parent_dir(vfs_root, abs_path);
 
 		if (!parent || parent.type !== 'dir' || !parent.children) {
 			return { lines: [`touch: ${file_path}: No such file or directory`] };
@@ -330,8 +330,8 @@ function cmd_rm(args: string[], state: TerminalState): CommandResult {
 	}
 
 	for (const file_path of file_args) {
-		const abs_path = resolve_path(state.fs_root, state.cwd, file_path).absolute_path;
-		const { node } = resolve_path(state.fs_root, state.cwd, file_path);
+		const abs_path = resolve_path(vfs_root, state.cwd, file_path).absolute_path;
+		const { node } = resolve_path(vfs_root, state.cwd, file_path);
 
 		if (!node) {
 			if (!force) {
@@ -344,7 +344,7 @@ function cmd_rm(args: string[], state: TerminalState): CommandResult {
 			return { lines: [`rm: ${file_path}: is a directory`] };
 		}
 
-		const { parent } = get_parent_dir(state.fs_root, abs_path);
+		const { parent } = get_parent_dir(vfs_root, abs_path);
 		if (parent && parent.children) {
 			parent.children.delete(node.name);
 		}
@@ -410,7 +410,7 @@ function cmd_grep(args: string[], state: TerminalState): CommandResult {
 
 	if (file_paths.length === 0 && recursive) {
 		// grep -r pattern . (search current directory)
-		const { node } = resolve_path(state.fs_root, state.cwd, '.');
+		const { node } = resolve_path(vfs_root, state.cwd, '.');
 		if (node && node.type === 'dir' && node.children) {
 			for (const [child_name, child] of node.children) {
 				grep_file(child_name, child);
@@ -418,7 +418,7 @@ function cmd_grep(args: string[], state: TerminalState): CommandResult {
 		}
 	} else {
 		for (const file_path of file_paths) {
-			const { node } = resolve_path(state.fs_root, state.cwd, file_path);
+			const { node } = resolve_path(vfs_root, state.cwd, file_path);
 			if (!node) {
 				all_lines.push(`grep: ${file_path}: No such file or directory`);
 				continue;
@@ -439,7 +439,7 @@ function cmd_find(args: string[], state: TerminalState): CommandResult {
 	const type_filter = type_idx >= 0 && args[type_idx + 1] ? args[type_idx + 1] : null;
 
 	const target = path_arg === '.' ? state.cwd : path_arg;
-	const { node } = resolve_path(state.fs_root, state.cwd, target);
+	const { node } = resolve_path(vfs_root, state.cwd, target);
 
 	if (!node || node.type !== 'dir' || !node.children) {
 		return { lines: [`find: ${path_arg}: No such file or directory`] };
@@ -580,7 +580,7 @@ function cmd_head(args: string[], state: TerminalState): CommandResult {
 
 	const all: string[] = [];
 	for (const fp of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		const { node } = resolve_path(vfs_root, state.cwd, fp);
 		if (!node) { all.push(`head: ${fp}: No such file or directory`); continue; }
 		if (node.type === 'dir') { all.push(`head: ${fp}: Is a directory`); continue; }
 		if (file_args.length > 1) {
@@ -610,7 +610,7 @@ function cmd_tail(args: string[], state: TerminalState): CommandResult {
 
 	const all: string[] = [];
 	for (const fp of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		const { node } = resolve_path(vfs_root, state.cwd, fp);
 		if (!node) { all.push(`tail: ${fp}: No such file or directory`); continue; }
 		if (node.type === 'dir') { all.push(`tail: ${fp}: Is a directory`); continue; }
 		if (file_args.length > 1) {
@@ -632,7 +632,7 @@ function cmd_wc(args: string[], state: TerminalState): CommandResult {
 	let total_lines = 0, total_words = 0, total_bytes = 0;
 
 	for (const fp of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		const { node } = resolve_path(vfs_root, state.cwd, fp);
 		if (!node) { all.push(`wc: ${fp}: No such file or directory`); continue; }
 		if (node.type === 'dir') { all.push(`wc: ${fp}: read: Is a directory`); continue; }
 		const content = node.content || '';
@@ -659,7 +659,7 @@ function cmd_sort(args: string[], state: TerminalState): CommandResult {
 
 	const all_content: string[] = [];
 	for (const fp of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		const { node } = resolve_path(vfs_root, state.cwd, fp);
 		if (!node) return { lines: [`sort: ${fp}: No such file or directory`] };
 		if (node.type === 'dir') return { lines: [`sort: ${fp}: Is a directory`] };
 		if (node.content) {
@@ -685,7 +685,7 @@ function cmd_uniq(args: string[], state: TerminalState): CommandResult {
 
 	if (file_args.length === 0) return { lines: ['usage: uniq [-c | -d | -D | -u] [-i] [-f fields] [-s chars] [input [output]]'] };
 
-	const { node } = resolve_path(state.fs_root, state.cwd, file_args[0]);
+	const { node } = resolve_path(vfs_root, state.cwd, file_args[0]);
 	if (!node) return { lines: [`uniq: ${file_args[0]}: No such file or directory`] };
 	if (!node.content) return { lines: [] };
 
@@ -1095,7 +1095,7 @@ function cmd_tree(args: string[], state: TerminalState): CommandResult {
 	const dirs_only = args.includes('-d');
 	const target = args.find(a => !a.startsWith('-')) || '.';
 	const path = target === '.' ? state.cwd : target;
-	const { node } = resolve_path(state.fs_root, state.cwd, path);
+	const { node } = resolve_path(vfs_root, state.cwd, path);
 
 	if (!node || node.type !== 'dir' || !node.children) {
 		return { lines: [`${path} [error opening dir]`] };
@@ -1185,7 +1185,7 @@ function cmd_alias(_args: string[], _state: TerminalState): CommandResult {
 function cmd_du(args: string[], state: TerminalState): CommandResult {
 	const human = args.includes('-h') || args.includes('-sh');
 	const target = args.find(a => !a.startsWith('-')) || '.';
-	const { node } = resolve_path(state.fs_root, state.cwd, target);
+	const { node } = resolve_path(vfs_root, state.cwd, target);
 
 	if (!node) return { lines: [`du: ${target}: No such file or directory`] };
 
@@ -1248,12 +1248,12 @@ function cmd_cp(args: string[], state: TerminalState): CommandResult {
 
 	const src_path = non_flag[0];
 	const dst_path = non_flag[1];
-	const { node: src } = resolve_path(state.fs_root, state.cwd, src_path);
+	const { node: src } = resolve_path(vfs_root, state.cwd, src_path);
 	if (!src) return { lines: [`cp: ${src_path}: No such file or directory`] };
 	if (src.type === 'dir') return { lines: [`cp: ${src_path}: is a directory (not copied)`] };
 
-	const dst_abs = resolve_path(state.fs_root, state.cwd, dst_path).absolute_path;
-	const { parent } = get_parent_dir(state.fs_root, dst_abs);
+	const dst_abs = resolve_path(vfs_root, state.cwd, dst_path).absolute_path;
+	const { parent } = get_parent_dir(vfs_root, dst_abs);
 	if (!parent || !parent.children) return { lines: [`cp: ${dst_path}: No such file or directory`] };
 
 	const name = dst_abs.split('/').filter(Boolean).pop()!;
@@ -1267,15 +1267,15 @@ function cmd_mv(args: string[], state: TerminalState): CommandResult {
 
 	const src_path = non_flag[0];
 	const dst_path = non_flag[1];
-	const src_abs = resolve_path(state.fs_root, state.cwd, src_path).absolute_path;
-	const { node: src } = resolve_path(state.fs_root, state.cwd, src_path);
+	const src_abs = resolve_path(vfs_root, state.cwd, src_path).absolute_path;
+	const { node: src } = resolve_path(vfs_root, state.cwd, src_path);
 	if (!src) return { lines: [`mv: rename ${src_path} to ${dst_path}: No such file or directory`] };
 
-	const dst_abs = resolve_path(state.fs_root, state.cwd, dst_path).absolute_path;
-	const { parent: dst_parent } = get_parent_dir(state.fs_root, dst_abs);
+	const dst_abs = resolve_path(vfs_root, state.cwd, dst_path).absolute_path;
+	const { parent: dst_parent } = get_parent_dir(vfs_root, dst_abs);
 	if (!dst_parent || !dst_parent.children) return { lines: [`mv: rename ${src_path} to ${dst_path}: No such file or directory`] };
 
-	const { parent: src_parent } = get_parent_dir(state.fs_root, src_abs);
+	const { parent: src_parent } = get_parent_dir(vfs_root, src_abs);
 	if (src_parent && src_parent.children) {
 		src_parent.children.delete(src.name);
 	}
@@ -1290,7 +1290,7 @@ function cmd_chmod(args: string[], state: TerminalState): CommandResult {
 	const mode = args[0];
 	const file_args = args.slice(1);
 	for (const fp of file_args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		const { node } = resolve_path(vfs_root, state.cwd, fp);
 		if (!node) return { lines: [`chmod: ${fp}: No such file or directory`] };
 		// Parse octal mode and apply
 		const octal = parseInt(mode, 8);
@@ -1320,8 +1320,8 @@ function cmd_ln(args: string[], state: TerminalState): CommandResult {
 
 	const target_name = non_flag[0];
 	const link_path = non_flag[1];
-	const link_abs = resolve_path(state.fs_root, state.cwd, link_path).absolute_path;
-	const { parent } = get_parent_dir(state.fs_root, link_abs);
+	const link_abs = resolve_path(vfs_root, state.cwd, link_path).absolute_path;
+	const { parent } = get_parent_dir(vfs_root, link_abs);
 
 	if (!parent || !parent.children) return { lines: [`ln: ${link_path}: No such file or directory`] };
 
@@ -1338,7 +1338,7 @@ function cmd_ln(args: string[], state: TerminalState): CommandResult {
 			target: target_name,
 		});
 	} else {
-		const { node: target } = resolve_path(state.fs_root, state.cwd, target_name);
+		const { node: target } = resolve_path(vfs_root, state.cwd, target_name);
 		if (!target) return { lines: [`ln: ${target_name}: No such file or directory`] };
 		parent.children.set(name, { ...target, name });
 	}
@@ -1349,8 +1349,8 @@ function cmd_diff(args: string[], state: TerminalState): CommandResult {
 	const file_args = args.filter(a => !a.startsWith('-'));
 	if (file_args.length < 2) return { lines: ['usage: diff [-aBbdipTtw] [-c | -e | -f | -n | -q | -u] file1 file2'] };
 
-	const { node: n1 } = resolve_path(state.fs_root, state.cwd, file_args[0]);
-	const { node: n2 } = resolve_path(state.fs_root, state.cwd, file_args[1]);
+	const { node: n1 } = resolve_path(vfs_root, state.cwd, file_args[0]);
+	const { node: n2 } = resolve_path(vfs_root, state.cwd, file_args[1]);
 
 	if (!n1) return { lines: [`diff: ${file_args[0]}: No such file or directory`] };
 	if (!n2) return { lines: [`diff: ${file_args[1]}: No such file or directory`] };
@@ -1413,7 +1413,7 @@ function cmd_dirname(args: string[], _state: TerminalState): CommandResult {
 function cmd_readlink(args: string[], state: TerminalState): CommandResult {
 	const file_args = args.filter(a => !a.startsWith('-'));
 	if (file_args.length === 0) return { lines: ['usage: readlink [-fn] [file ...]'] };
-	const { node } = resolve_path(state.fs_root, state.cwd, file_args[0]);
+	const { node } = resolve_path(vfs_root, state.cwd, file_args[0]);
 	if (!node) return { lines: [`readlink: ${file_args[0]}: No such file or directory`] };
 	if (node.type === 'symlink' && node.target) return { lines: [node.target] };
 	return { lines: [] };
@@ -1424,7 +1424,7 @@ function cmd_file(args: string[], state: TerminalState): CommandResult {
 
 	const results: string[] = [];
 	for (const fp of args) {
-		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		const { node } = resolve_path(vfs_root, state.cwd, fp);
 		if (!node) { results.push(`${fp}: cannot open (No such file or directory)`); continue; }
 		if (node.type === 'dir') { results.push(`${fp}: directory`); continue; }
 		if (node.type === 'symlink') { results.push(`${fp}: symbolic link to ${node.target}`); continue; }
@@ -1645,7 +1645,7 @@ export function get_path_completions(partial: string, state: TerminalState): str
 	}
 
 	const target = dir_path === '.' ? state.cwd : dir_path;
-	const { node } = resolve_path(state.fs_root, state.cwd, target);
+	const { node } = resolve_path(vfs_root, state.cwd, target);
 
 	if (!node || node.type !== 'dir' || !node.children) {
 		return [];

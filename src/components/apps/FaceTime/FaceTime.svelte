@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { notify } from '../../../state/notifications.svelte';
+
 	type CallType = 'video' | 'audio';
 	type CallDirection = 'incoming' | 'outgoing' | 'missed';
 	type CallFilter = 'all' | 'missed';
@@ -85,6 +88,13 @@
 		muted = false;
 		camera_off = false;
 
+		notify({
+			app_name: 'FaceTime',
+			app_icon: '/app-icons/facetime/256.webp',
+			title: `${type === 'video' ? 'Video' : 'Audio'} Call`,
+			body: `Calling ${contact.name}...`,
+		});
+
 		// Simulate connection after 2s
 		setTimeout(() => {
 			if (is_calling) call_status = 'connected';
@@ -96,6 +106,21 @@
 		active_contact = null;
 		call_status = 'connecting';
 	}
+
+	// Simulate an incoming call notification shortly after opening
+	onMount(() => {
+		const missed = call_history.find(c => c.direction === 'missed');
+		if (missed) {
+			setTimeout(() => {
+				notify({
+					app_name: 'FaceTime',
+					app_icon: '/app-icons/facetime/256.webp',
+					title: 'Incoming Call',
+					body: `${missed.contact.name} is calling...`,
+				});
+			}, 3000);
+		}
+	});
 
 	function direction_icon(dir: CallDirection): string {
 		if (dir === 'outgoing') return 'M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5z';

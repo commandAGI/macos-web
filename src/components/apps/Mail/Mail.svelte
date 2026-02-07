@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { notify } from '../../../state/notifications.svelte';
+
 	type Email = { id: number; from: string; subject: string; preview: string; body: string; date: string; read: boolean };
 
 	const folders = [
@@ -76,6 +79,18 @@
 	}
 
 	const current_emails = $derived(emails[selected_folder] || []);
+
+	onMount(() => {
+		const unread = emails.Inbox.filter(e => !e.read);
+		if (unread.length > 0) {
+			notify({
+				app_name: 'Mail',
+				app_icon: '/app-icons/mail/256.webp',
+				title: `${unread.length} Unread Email${unread.length > 1 ? 's' : ''}`,
+				body: `From: ${unread[0].from} — ${unread[0].subject}`,
+			});
+		}
+	});
 </script>
 
 <section class="container">

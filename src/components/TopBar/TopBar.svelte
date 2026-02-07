@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { fade_out } from '🍎/helpers/fade';
 	import { should_show_notch } from '🍎/state/menubar.svelte.ts';
+	import { unread_count } from '🍎/state/notifications.svelte.ts';
 
 	import { sineIn } from 'svelte/easing';
 	import { fade } from 'svelte/transition';
 	import ActionCenterToggle from './ActionCenterToggle.svelte';
 	import MenuBar from './MenuBar.svelte';
+	import NotificationCenter from '../NotificationCenter.svelte';
 	import TopBarTime from './TopBarTime.svelte';
+
+	let nc_visible = $state(false);
+	let badge = $derived(unread_count());
 </script>
 
 <header>
@@ -22,10 +27,15 @@
 
 	<ActionCenterToggle />
 
-	<button>
+	<button class="time-button" onclick={() => (nc_visible = !nc_visible)}>
+		{#if badge > 0}
+			<span class="badge">{badge > 99 ? '99+' : badge}</span>
+		{/if}
 		<TopBarTime />
 	</button>
 </header>
+
+<NotificationCenter bind:visible={nc_visible} />
 
 <style>
 	header {
@@ -125,5 +135,40 @@
 		width: 1.5em;
 
 		vertical-align: middle;
+	}
+
+	.time-button {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+
+		padding: 0 0.5rem !important;
+
+		border-radius: 0.25rem;
+
+		&:hover {
+			background-color: hsla(0, 0%, 96%, 0.3);
+		}
+	}
+
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+
+		min-width: 1rem;
+		height: 1rem;
+
+		padding: 0 0.3rem;
+
+		font-size: 0.6rem;
+		font-weight: 700;
+		font-family: var(--system-font-family);
+		line-height: 1;
+
+		color: var(--system-color-primary-contrast);
+		background-color: var(--system-color-primary);
+
+		border-radius: 0.5rem;
 	}
 </style>

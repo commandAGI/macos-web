@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { notify } from '../../../state/notifications.svelte';
+
 	type Message = { text: string; sent: boolean; time: string };
 	type Conversation = { name: string; avatar: string; messages: Message[]; lastMessage: string; lastTime: string };
 
@@ -67,6 +69,17 @@
 		conversations[selected].lastMessage = new_message;
 		conversations[selected].lastTime = 'Now';
 		new_message = '';
+
+		// Simulate a reply notification after a short delay
+		const convo_name = conversations[selected].name;
+		setTimeout(() => {
+			notify({
+				app_name: 'Messages',
+				app_icon: '/app-icons/messages/256.webp',
+				title: convo_name,
+				body: 'Typing...',
+			});
+		}, 2000);
 	}
 </script>
 

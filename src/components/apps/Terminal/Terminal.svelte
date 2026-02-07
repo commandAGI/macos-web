@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { create_default_fs, display_path, type FSNode } from './virtual-fs';
+	import { display_path } from '../../../state/vfs.svelte';
+	import { copy_text, paste_text } from '../../../state/clipboard.svelte';
 	import { COMMANDS, get_completions, parse_command_line, type TerminalState, type CommandResult } from './commands';
 
 	// --- Types ---
@@ -18,7 +19,6 @@
 		history_index: number;
 		saved_input: string;
 		env: Record<string, string>;
-		fs_root: Map<string, FSNode>;
 		line_counter: number;
 	}
 
@@ -72,7 +72,6 @@
 
 	function create_tab(): Tab {
 		const id = tab_counter++;
-		const fs = create_default_fs();
 		const login_date = new Date();
 		const line_counter = 1;
 
@@ -87,7 +86,6 @@
 			history_index: -1,
 			saved_input: '',
 			env: { OLDPWD: '/Users/user' },
-			fs_root: fs,
 			line_counter,
 		};
 	}
@@ -130,7 +128,6 @@
 	function get_state(): TerminalState {
 		return {
 			cwd: active_tab.cwd,
-			fs_root: active_tab.fs_root,
 			history: active_tab.history,
 			env: active_tab.env,
 		};
@@ -295,18 +292,35 @@
 	function handle_keydown(e: KeyboardEvent) {
 		const tab = active_tab;
 
-		// Cmd+C: copy selected text (if selection exists), otherwise Ctrl+C interrupt
+		// Cmd+C: copy selected text to shared clipboard (if selection exists)
 		if (e.key === 'c' && e.metaKey) {
 			const sel = window.getSelection();
 			if (sel && sel.toString().length > 0) {
-				// Let the browser handle native copy
+				e.preventDefault();
+				copy_text(sel.toString());
 				return;
 			}
+			// No selection — fall through so Ctrl+C / other handlers can act
 		}
 
-		// Cmd+V: paste from clipboard
+		// Cmd+V: paste from shared clipboard into the input at cursor position
 		if (e.key === 'v' && e.metaKey) {
-			// Let the browser handle native paste into the input
+			e.preventDefault();
+			const clip = paste_text();
+			if (clip) {
+				// Strip newlines — terminal input is single-line
+				const sanitized = clip.replace(/[\r\n]+/g, ' ');
+				const pos = input_el?.selectionStart ?? current_input.length;
+				const before = current_input.slice(0, pos);
+				const after = current_input.slice(pos);
+				current_input = before + sanitized + after;
+				const new_pos = pos + sanitized.length;
+				tick().then(() => {
+					if (input_el) {
+						input_el.selectionStart = input_el.selectionEnd = new_pos;
+					}
+				});
+			}
 			return;
 		}
 

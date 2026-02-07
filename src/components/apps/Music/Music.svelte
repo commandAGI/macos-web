@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { copy_text } from '../../../state/clipboard.svelte';
+	import { notify } from '../../../state/notifications.svelte';
+
 	// ── Types ──
 	type Song = {
 		id: number;
@@ -215,6 +218,13 @@
 				queue = context_songs.slice(idx + 1).map(s => s.id);
 			}
 		}
+
+		notify({
+			app_name: 'Music',
+			app_icon: '/app-icons/music/256.webp',
+			title: 'Now Playing',
+			body: `${song.title} — ${song.artist}`,
+		});
 
 		start_progress();
 	}
@@ -444,6 +454,12 @@
 		}
 	];
 
+	/** Right-click on a song row to copy "Title - Artist" to clipboard. */
+	function copy_song_info(e: MouseEvent, song: Song) {
+		e.preventDefault();
+		copy_text(`${song.title} - ${song.artist}`);
+	}
+
 	// Cleanup on destroy
 	$effect(() => {
 		return () => {
@@ -576,6 +592,7 @@
 										class:playing={current_song_id === song.id}
 										class:odd={i % 2 === 1}
 										onclick={() => play_song(song, search_results.songs)}
+										oncontextmenu={(e) => copy_song_info(e, song)}
 									>
 										<span class="song-num">
 											{#if current_song_id === song.id && is_playing}
@@ -757,6 +774,7 @@
 									class:playing={current_song_id === song.id}
 									class:odd={i % 2 === 1}
 									onclick={() => play_song(song, selected_album_songs)}
+									oncontextmenu={(e) => copy_song_info(e, song)}
 								>
 									<span class="song-num">
 										{#if current_song_id === song.id && is_playing}
@@ -817,6 +835,7 @@
 									class:playing={current_song_id === song.id}
 									class:odd={i % 2 === 1}
 									onclick={() => play_song(song, selected_playlist_songs)}
+									oncontextmenu={(e) => copy_song_info(e, song)}
 								>
 									<span class="song-num">
 										{#if current_song_id === song.id && is_playing}
@@ -933,6 +952,7 @@
 								class:playing={current_song_id === song.id}
 								class:odd={i % 2 === 1}
 								onclick={() => play_song(song, songs)}
+								oncontextmenu={(e) => copy_song_info(e, song)}
 							>
 								<span class="song-num">
 									{#if current_song_id === song.id && is_playing}

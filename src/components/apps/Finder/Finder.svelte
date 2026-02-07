@@ -1,20 +1,48 @@
 <script lang="ts">
+	import type { FSNode } from '../../../state/vfs.svelte';
+	import {
+		vfs_version,
+		ls,
+		mkdir,
+		rm,
+		mv,
+		cp,
+		stat,
+		format_size,
+		format_date_short,
+	} from '../../../state/vfs.svelte';
+	import { open_file } from '../../../state/file-opener.svelte';
+	import {
+		clipboard_store as clipboard_state,
+		copy_files as clipboard_copy_files,
+		paste_files as clipboard_paste_files,
+	} from '../../../state/clipboard.svelte';
+	import { get_file_type_label } from '../../../state/file-registry';
+	import { apps } from '../../../state/apps.svelte';
+	import { notify } from '../../../state/notifications.svelte';
+
+	const FINDER_ICON = '/app-icons/finder/256.webp';
+	const FINDER_APP = 'Finder';
+
+	type ViewMode = 'icons' | 'list' | 'columns' | 'gallery';
+
+	// Internal type for display in list/icon/gallery/column views
 	type FileEntry = {
 		name: string;
 		kind: string;
 		size: string;
 		modified: string;
-		icon?: string;
+		is_dir: boolean;
+		vfs_path: string;
 	};
 
-	type ViewMode = 'icons' | 'list' | 'columns' | 'gallery';
+	// VFS path state — we now track the actual absolute VFS path
+	let current_vfs_path = $state('/Users/user');
+	let path_history = $state<string[]>(['/Users/user']);
+	let history_index = $state(0);
 
-	// Navigation state
-	let path_stack = $state<string[]>(['Home']);
-	let forward_stack = $state<string[]>([]);
 	let selected_files = $state<Set<string>>(new Set());
 	let view_mode = $state<ViewMode>('list');
-	let clipboard = $state<{ action: 'copy' | 'cut'; files: string[] } | null>(null);
 	let sort_by = $state<'name' | 'modified' | 'size' | 'kind'>('name');
 	let sort_asc = $state(true);
 	let search_query = $state('');
@@ -44,23 +72,22 @@
 	let content_area_el: HTMLDivElement | undefined = $state(undefined);
 	let rename_input_el: HTMLInputElement | undefined = $state(undefined);
 
-	const current_folder = $derived(path_stack[path_stack.length - 1]);
-
+	// Map sidebar items to VFS paths
 	const sidebar_favorites = [
-		{ name: 'AirDrop', icon: 'airdrop' },
-		{ name: 'Recents', icon: 'recents' },
-		{ name: 'Applications', icon: 'applications' },
-		{ name: 'Desktop', icon: 'desktop' },
-		{ name: 'Documents', icon: 'documents' },
-		{ name: 'Downloads', icon: 'downloads' },
-		{ name: 'Home', icon: 'home' },
+		{ name: 'AirDrop', icon: 'airdrop', vfs_path: '' },
+		{ name: 'Recents', icon: 'recents', vfs_path: '' },
+		{ name: 'Applications', icon: 'applications', vfs_path: '/Applications' },
+		{ name: 'Desktop', icon: 'desktop', vfs_path: '/Users/user/Desktop' },
+		{ name: 'Documents', icon: 'documents', vfs_path: '/Users/user/Documents' },
+		{ name: 'Downloads', icon: 'downloads', vfs_path: '/Users/user/Downloads' },
+		{ name: 'Home', icon: 'home', vfs_path: '/Users/user' },
 	];
 
 	const sidebar_locations = [
-		{ name: 'iCloud Drive', icon: 'icloud' },
-		{ name: 'Time Machine', icon: 'timemachine' },
-		{ name: 'Macintosh HD', icon: 'disk' },
-		{ name: 'Network', icon: 'network' },
+		{ name: 'iCloud Drive', icon: 'icloud', vfs_path: '' },
+		{ name: 'Time Machine', icon: 'timemachine', vfs_path: '' },
+		{ name: 'Macintosh HD', icon: 'disk', vfs_path: '/' },
+		{ name: 'Network', icon: 'network', vfs_path: '' },
 	];
 
 	const sidebar_tags = [
@@ -72,6 +99,38 @@
 		{ name: 'Purple', color: '#af52de' },
 		{ name: 'Gray', color: '#8e8e93' },
 	];
+
+	// Map VFS path to a display name for breadcrumbs
+	function path_display_name(vfs_path: string): string {
+		if (vfs_path === '/') return 'Macintosh HD';
+		if (vfs_path === '/Users/user') return 'Home';
+		if (vfs_path === '/Applications') return 'Applications';
+		const parts = vfs_path.split('/').filter(Boolean);
+		return parts[parts.length - 1] ?? '/';
+	}
+
+	// Build breadcrumb segments from current VFS path
+	const breadcrumb_segments = $derived.by(() => {
+		const segments: { label: string; vfs_path: string }[] = [];
+		if (current_vfs_path === '/') {
+			segments.push({ label: 'Macintosh HD', vfs_path: '/' });
+			return segments;
+		}
+		const parts = current_vfs_path.split('/').filter(Boolean);
+		let accumulated = '';
+		for (const part of parts) {
+			accumulated += '/' + part;
+			segments.push({ label: path_display_name(accumulated), vfs_path: accumulated });
+		}
+		return segments;
+	});
+
+	// Display name for current folder (last breadcrumb)
+	const current_folder_display = $derived(
+		breadcrumb_segments.length > 0
+			? breadcrumb_segments[breadcrumb_segments.length - 1].label
+			: 'Finder'
+	);
 
 	function get_sidebar_svg(icon: string): string {
 		switch (icon) {
@@ -102,129 +161,11 @@
 		}
 	}
 
-	const files: Record<string, FileEntry[]> = {
-		Home: [
-			{ name: 'Desktop', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'Documents', kind: 'Folder', size: '--', modified: 'Jan 14, 2024' },
-			{ name: 'Downloads', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'Movies', kind: 'Folder', size: '--', modified: 'Dec 20, 2023' },
-			{ name: 'Music', kind: 'Folder', size: '--', modified: 'Nov 10, 2023' },
-			{ name: 'Pictures', kind: 'Folder', size: '--', modified: 'Jan 12, 2024' },
-			{ name: 'Public', kind: 'Folder', size: '--', modified: 'Oct 1, 2023' },
-			{ name: '.zshrc', kind: 'Unix Executable', size: '4 KB', modified: 'Jan 10, 2024' },
-		],
-		Desktop: [
-			{ name: 'Projects', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'Screenshot 2024-01-15.png', kind: 'PNG Image', size: '2.4 MB', modified: 'Jan 15, 2024' },
-			{ name: 'Screenshot 2024-01-14.png', kind: 'PNG Image', size: '1.8 MB', modified: 'Jan 14, 2024' },
-			{ name: 'Project Notes.txt', kind: 'Plain Text', size: '12 KB', modified: 'Jan 14, 2024' },
-			{ name: 'report-final.pdf', kind: 'PDF Document', size: '1.8 MB', modified: 'Jan 12, 2024' },
-			{ name: 'design-mockup.sketch', kind: 'Sketch Document', size: '34 MB', modified: 'Jan 11, 2024' },
-			{ name: 'todo.md', kind: 'Markdown', size: '2 KB', modified: 'Jan 10, 2024' },
-		],
-		Projects: [
-			{ name: 'my-app', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'website-redesign', kind: 'Folder', size: '--', modified: 'Jan 12, 2024' },
-			{ name: 'README.md', kind: 'Markdown', size: '8 KB', modified: 'Jan 15, 2024' },
-		],
-		'my-app': [
-			{ name: 'src', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'node_modules', kind: 'Folder', size: '--', modified: 'Jan 14, 2024' },
-			{ name: 'package.json', kind: 'JSON', size: '2 KB', modified: 'Jan 15, 2024' },
-			{ name: 'tsconfig.json', kind: 'JSON', size: '1 KB', modified: 'Jan 10, 2024' },
-			{ name: '.gitignore', kind: 'Plain Text', size: '1 KB', modified: 'Jan 10, 2024' },
-		],
-		Documents: [
-			{ name: 'Work', kind: 'Folder', size: '--', modified: 'Jan 14, 2024' },
-			{ name: 'Personal', kind: 'Folder', size: '--', modified: 'Jan 10, 2024' },
-			{ name: 'Resume.docx', kind: 'Word Document', size: '45 KB', modified: 'Jan 10, 2024' },
-			{ name: 'Budget 2024.xlsx', kind: 'Spreadsheet', size: '128 KB', modified: 'Jan 8, 2024' },
-			{ name: 'Meeting Notes.txt', kind: 'Plain Text', size: '6 KB', modified: 'Jan 5, 2024' },
-			{ name: 'Contracts', kind: 'Folder', size: '--', modified: 'Dec 20, 2023' },
-			{ name: 'Tax Returns 2023.pdf', kind: 'PDF Document', size: '2.1 MB', modified: 'Dec 15, 2023' },
-		],
-		Work: [
-			{ name: 'Q1 Report.pdf', kind: 'PDF Document', size: '3.2 MB', modified: 'Jan 14, 2024' },
-			{ name: 'Presentation.key', kind: 'Keynote', size: '18 MB', modified: 'Jan 12, 2024' },
-			{ name: 'Sprint Planning.docx', kind: 'Word Document', size: '32 KB', modified: 'Jan 10, 2024' },
-		],
-		Personal: [
-			{ name: 'Journal.txt', kind: 'Plain Text', size: '24 KB', modified: 'Jan 10, 2024' },
-			{ name: 'Recipes', kind: 'Folder', size: '--', modified: 'Dec 28, 2023' },
-		],
-		Contracts: [
-			{ name: 'NDA-2024.pdf', kind: 'PDF Document', size: '156 KB', modified: 'Dec 20, 2023' },
-			{ name: 'Employment Agreement.pdf', kind: 'PDF Document', size: '420 KB', modified: 'Nov 15, 2023' },
-		],
-		Downloads: [
-			{ name: 'node-v20.10.0.pkg', kind: 'Installer Package', size: '45.2 MB', modified: 'Jan 15, 2024' },
-			{ name: 'Visual Studio Code.dmg', kind: 'Disk Image', size: '198 MB', modified: 'Jan 14, 2024' },
-			{ name: 'photo-album.zip', kind: 'ZIP Archive', size: '230 MB', modified: 'Jan 13, 2024' },
-			{ name: 'presentation.key', kind: 'Keynote', size: '18 MB', modified: 'Jan 11, 2024' },
-			{ name: 'Slack-4.35.dmg', kind: 'Disk Image', size: '165 MB', modified: 'Jan 8, 2024' },
-			{ name: 'invoice-december.pdf', kind: 'PDF Document', size: '89 KB', modified: 'Jan 5, 2024' },
-			{ name: 'vacation-photo.jpg', kind: 'JPEG Image', size: '4.2 MB', modified: 'Jan 3, 2024' },
-		],
-		Applications: [
-			{ name: 'App Store.app', kind: 'Application', size: '15 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Calculator.app', kind: 'Application', size: '4.2 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Calendar.app', kind: 'Application', size: '12 MB', modified: 'Oct 1, 2023' },
-			{ name: 'FaceTime.app', kind: 'Application', size: '8.5 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Finder.app', kind: 'Application', size: '6.1 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Mail.app', kind: 'Application', size: '15 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Maps.app', kind: 'Application', size: '22 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Messages.app', kind: 'Application', size: '10 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Music.app', kind: 'Application', size: '35 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Notes.app', kind: 'Application', size: '8 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Photos.app', kind: 'Application', size: '45 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Safari.app', kind: 'Application', size: '22 MB', modified: 'Oct 1, 2023' },
-			{ name: 'System Preferences.app', kind: 'Application', size: '3 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Terminal.app', kind: 'Application', size: '5 MB', modified: 'Oct 1, 2023' },
-			{ name: 'TextEdit.app', kind: 'Application', size: '4 MB', modified: 'Oct 1, 2023' },
-			{ name: 'Visual Studio Code.app', kind: 'Application', size: '380 MB', modified: 'Jan 14, 2024' },
-			{ name: 'Xcode.app', kind: 'Application', size: '12.4 GB', modified: 'Dec 10, 2023' },
-		],
-		Recents: [
-			{ name: 'Screenshot 2024-01-15.png', kind: 'PNG Image', size: '2.4 MB', modified: 'Jan 15, 2024' },
-			{ name: 'node-v20.10.0.pkg', kind: 'Installer Package', size: '45.2 MB', modified: 'Jan 15, 2024' },
-			{ name: 'Project Notes.txt', kind: 'Plain Text', size: '12 KB', modified: 'Jan 14, 2024' },
-			{ name: 'Q1 Report.pdf', kind: 'PDF Document', size: '3.2 MB', modified: 'Jan 14, 2024' },
-			{ name: 'Resume.docx', kind: 'Word Document', size: '45 KB', modified: 'Jan 10, 2024' },
-		],
-		AirDrop: [],
-		'iCloud Drive': [
-			{ name: 'Documents', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'Desktop', kind: 'Folder', size: '--', modified: 'Jan 14, 2024' },
-			{ name: 'Pages Documents', kind: 'Folder', size: '--', modified: 'Dec 20, 2023' },
-		],
-		'Time Machine': [],
-		'Macintosh HD': [
-			{ name: 'Applications', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'Library', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'System', kind: 'Folder', size: '--', modified: 'Oct 1, 2023' },
-			{ name: 'Users', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'private', kind: 'Folder', size: '--', modified: 'Oct 1, 2023' },
-			{ name: 'tmp', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-			{ name: 'var', kind: 'Folder', size: '--', modified: 'Jan 15, 2024' },
-		],
-		Network: [],
-		Movies: [
-			{ name: 'vacation-2023.mov', kind: 'QuickTime Movie', size: '1.2 GB', modified: 'Dec 20, 2023' },
-		],
-		Music: [
-			{ name: 'Music Library.musiclibrary', kind: 'Music Library', size: '3.4 GB', modified: 'Nov 10, 2023' },
-		],
-		Pictures: [
-			{ name: 'Photos Library.photoslibrary', kind: 'Photos Library', size: '28 GB', modified: 'Jan 12, 2024' },
-			{ name: 'Wallpapers', kind: 'Folder', size: '--', modified: 'Dec 5, 2023' },
-		],
-	};
+	function get_file_icon_svg(entry: FileEntry): string {
+		const ext = entry.name.split('.').pop()?.toLowerCase() || '';
+		const kind = entry.kind;
 
-	function get_file_icon_svg(file: FileEntry): string {
-		const ext = file.name.split('.').pop()?.toLowerCase() || '';
-		const kind = file.kind;
-
-		if (kind === 'Folder') {
+		if (entry.is_dir && !entry.name.endsWith('.app')) {
 			return '<svg viewBox="0 0 40 34" fill="none"><path d="M2 6C2 4.34 3.34 3 5 3h10l3 4h17c1.66 0 3 1.34 3 3v18c0 1.66-1.34 3-3 3H5c-1.66 0-3-1.34-3-3V6z" fill="#64B5F6"/><path d="M2 10h36v18c0 1.66-1.34 3-3 3H5c-1.66 0-3-1.34-3-3V10z" fill="#42A5F5"/></svg>';
 		}
 
@@ -240,7 +181,7 @@
 			return '<svg viewBox="0 0 34 40" fill="none"><path d="M2 4c0-1.1.9-2 2-2h18l10 10v24c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V4z" fill="white" stroke="#E0E0E0" stroke-width="1.5"/><path d="M22 2v8h10" fill="#E0E0E0"/><rect x="6" y="16" width="22" height="14" rx="1" fill="#E8F5E9"/><circle cx="12" cy="21" r="2" fill="#66BB6A"/><path d="M6 28l6-5 4 3 5-6 7 8H6z" fill="#43A047"/></svg>';
 		}
 
-		if (kind === 'Plain Text' || ext === 'txt' || ext === 'md') {
+		if (kind === 'Plain Text' || kind === 'Markdown' || ext === 'txt' || ext === 'md') {
 			return '<svg viewBox="0 0 34 40" fill="none"><path d="M2 4c0-1.1.9-2 2-2h18l10 10v24c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V4z" fill="white" stroke="#E0E0E0" stroke-width="1.5"/><path d="M22 2v8h10" fill="#E0E0E0"/><path d="M8 16h18M8 20h18M8 24h14M8 28h10" stroke="#BDBDBD" stroke-width="1.5" stroke-linecap="round"/></svg>';
 		}
 
@@ -248,7 +189,7 @@
 			return '<svg viewBox="0 0 34 40" fill="none"><path d="M2 4c0-1.1.9-2 2-2h18l10 10v24c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V4z" fill="white" stroke="#E0E0E0" stroke-width="1.5"/><path d="M22 2v8h10" fill="#E0E0E0"/><rect x="6" y="22" width="22" height="6" rx="1" fill="#2B579A"/><text x="17" y="27" text-anchor="middle" fill="white" font-size="5" font-weight="bold" font-family="sans-serif">DOC</text></svg>';
 		}
 
-		if (kind === 'Spreadsheet' || ext === 'xlsx' || ext === 'xls') {
+		if (kind === 'Excel Spreadsheet' || ext === 'xlsx' || ext === 'xls') {
 			return '<svg viewBox="0 0 34 40" fill="none"><path d="M2 4c0-1.1.9-2 2-2h18l10 10v24c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V4z" fill="white" stroke="#E0E0E0" stroke-width="1.5"/><path d="M22 2v8h10" fill="#E0E0E0"/><rect x="6" y="22" width="22" height="6" rx="1" fill="#217346"/><text x="17" y="27" text-anchor="middle" fill="white" font-size="5" font-weight="bold" font-family="sans-serif">XLS</text></svg>';
 		}
 
@@ -264,7 +205,7 @@
 			return '<svg viewBox="0 0 40 40" fill="none"><rect x="4" y="8" width="32" height="24" rx="3" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1.5"/><path d="M4 14h32" stroke="#BDBDBD" stroke-width="1"/><circle cx="20" cy="23" r="5" fill="#42A5F5"/><path d="M18 23l2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 		}
 
-		if (kind === 'Keynote' || ext === 'key') {
+		if (kind === 'Keynote Presentation' || ext === 'key') {
 			return '<svg viewBox="0 0 34 40" fill="none"><path d="M2 4c0-1.1.9-2 2-2h18l10 10v24c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V4z" fill="white" stroke="#E0E0E0" stroke-width="1.5"/><path d="M22 2v8h10" fill="#E0E0E0"/><rect x="6" y="22" width="22" height="6" rx="1" fill="#007AFF"/><text x="17" y="27" text-anchor="middle" fill="white" font-size="5" font-weight="bold" font-family="sans-serif">KEY</text></svg>';
 		}
 
@@ -284,8 +225,33 @@
 		return '<svg viewBox="0 0 34 40" fill="none"><path d="M2 4c0-1.1.9-2 2-2h18l10 10v24c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V4z" fill="white" stroke="#E0E0E0" stroke-width="1.5"/><path d="M22 2v8h10" fill="#E0E0E0"/></svg>';
 	}
 
-	function get_sorted_files(file_list: FileEntry[]): FileEntry[] {
-		let filtered = file_list;
+	/** Convert an FSNode to a display FileEntry */
+	function node_to_entry(node: FSNode, parent_path: string): FileEntry {
+		const is_dir = node.type === 'dir';
+		const full_path = parent_path === '/' ? '/' + node.name : parent_path + '/' + node.name;
+		let kind: string;
+		if (is_dir) {
+			if (node.name.endsWith('.app')) {
+				kind = 'Application';
+			} else {
+				kind = 'Folder';
+			}
+		} else {
+			kind = get_file_type_label(node.name);
+		}
+		return {
+			name: node.name,
+			kind,
+			size: is_dir ? '--' : format_size(node.size),
+			modified: format_date_short(node.modified),
+			is_dir,
+			vfs_path: full_path,
+		};
+	}
+
+	/** Get sorted, filtered entries from VFS for the current path */
+	function get_sorted_files(entries: FileEntry[]): FileEntry[] {
+		let filtered = entries;
 		if (!show_hidden) {
 			filtered = filtered.filter(f => !f.name.startsWith('.'));
 		}
@@ -295,8 +261,8 @@
 		}
 		return [...filtered].sort((a, b) => {
 			// Folders always first
-			if (a.kind === 'Folder' && b.kind !== 'Folder') return -1;
-			if (a.kind !== 'Folder' && b.kind === 'Folder') return 1;
+			if (a.is_dir && !a.name.endsWith('.app') && (!b.is_dir || b.name.endsWith('.app'))) return -1;
+			if ((!a.is_dir || a.name.endsWith('.app')) && b.is_dir && !b.name.endsWith('.app')) return 1;
 
 			let cmp = 0;
 			switch (sort_by) {
@@ -326,7 +292,15 @@
 		return num;
 	}
 
-	const current_files = $derived(get_sorted_files(files[current_folder] || []));
+	// Reactive file list from VFS
+	const raw_entries = $derived.by(() => {
+		// Touch vfs_version to trigger reactivity on any VFS mutation
+		void vfs_version.value;
+		const nodes = ls(current_vfs_path);
+		return nodes.map(n => node_to_entry(n, current_vfs_path));
+	});
+
+	const current_files = $derived(get_sorted_files(raw_entries));
 
 	const item_count_text = $derived(
 		(() => {
@@ -340,24 +314,30 @@
 
 	const available_text = $derived('142.8 GB available');
 
-	function navigate_to(folder: string, from_sidebar = false) {
-		if (from_sidebar) {
-			path_stack = [folder];
-		} else {
-			path_stack = [...path_stack, folder];
+	function navigate_to_path(vfs_path: string) {
+		if (vfs_path === current_vfs_path) return;
+		// Trim forward history if we navigate from mid-history
+		if (history_index < path_history.length - 1) {
+			path_history = path_history.slice(0, history_index + 1);
 		}
-		forward_stack = [];
+		path_history = [...path_history, vfs_path];
+		history_index = path_history.length - 1;
+		current_vfs_path = vfs_path;
 		selected_files = new Set();
 		renaming_file = null;
 		search_query = '';
 		focused_index = -1;
 	}
 
+	function navigate_sidebar(item: { name: string; vfs_path: string }) {
+		if (!item.vfs_path) return; // AirDrop, Recents, iCloud, Time Machine, Network — no real path
+		navigate_to_path(item.vfs_path);
+	}
+
 	function go_back() {
-		if (path_stack.length > 1) {
-			const current = path_stack[path_stack.length - 1];
-			forward_stack = [current, ...forward_stack];
-			path_stack = path_stack.slice(0, -1);
+		if (history_index > 0) {
+			history_index--;
+			current_vfs_path = path_history[history_index];
 			selected_files = new Set();
 			renaming_file = null;
 			focused_index = -1;
@@ -365,10 +345,9 @@
 	}
 
 	function go_forward() {
-		if (forward_stack.length > 0) {
-			const next = forward_stack[0];
-			path_stack = [...path_stack, next];
-			forward_stack = forward_stack.slice(1);
+		if (history_index < path_history.length - 1) {
+			history_index++;
+			current_vfs_path = path_history[history_index];
 			selected_files = new Set();
 			renaming_file = null;
 			focused_index = -1;
@@ -401,8 +380,19 @@
 	}
 
 	function handle_file_dblclick(file: FileEntry) {
-		if (file.kind === 'Folder' && files[file.name]) {
-			navigate_to(file.name);
+		if (file.is_dir && !file.name.endsWith('.app')) {
+			// Navigate into directory
+			navigate_to_path(file.vfs_path);
+		} else if (file.name.endsWith('.app')) {
+			// Launch the app
+			const app_name = file.name.replace('.app', '').toLowerCase().replace(/\s+/g, '-');
+			if (app_name in apps.open) {
+				(apps.open as Record<string, boolean>)[app_name] = true;
+				apps.active = app_name as typeof apps.active;
+			}
+		} else {
+			// Open the file with the appropriate app
+			open_file(file.vfs_path);
 		}
 	}
 
@@ -430,29 +420,75 @@
 		ctx_visible = false;
 	}
 
+	const can_paste = $derived(clipboard_state.current !== null && clipboard_state.current.type === 'files');
+
 	function ctx_action(action: string) {
 		switch (action) {
-			case 'new-folder':
-				if (files[current_folder]) {
-					files[current_folder] = [
-						{ name: 'untitled folder', kind: 'Folder', size: '--', modified: 'Today' },
-						...files[current_folder],
-					];
-					renaming_file = 'untitled folder';
-					rename_value = 'untitled folder';
-					selected_files = new Set(['untitled folder']);
+			case 'new-folder': {
+				// Find a unique name
+				let base = 'untitled folder';
+				let name = base;
+				let counter = 1;
+				const full_path = current_vfs_path === '/' ? '/' + name : current_vfs_path + '/' + name;
+				while (stat(full_path.replace(name, counter > 1 ? `${base} ${counter}` : base)) !== null) {
+					counter++;
+					name = `${base} ${counter}`;
 				}
+				const final_path = current_vfs_path === '/' ? '/' + name : current_vfs_path + '/' + name;
+				mkdir(final_path);
+				notify({
+					app_name: FINDER_APP,
+					app_icon: FINDER_ICON,
+					title: 'New Folder Created',
+					body: `"${name}" created in ${path_display_name(current_vfs_path)}`,
+				});
+				renaming_file = name;
+				rename_value = name;
+				selected_files = new Set([name]);
 				break;
+			}
 			case 'get-info':
 				break;
-			case 'copy':
-				clipboard = { action: 'copy', files: [...selected_files] };
+			case 'copy': {
+				const paths = [...selected_files].map(name =>
+					current_vfs_path === '/' ? '/' + name : current_vfs_path + '/' + name
+				);
+				clipboard_copy_files(paths, 'copy');
 				break;
-			case 'cut':
-				clipboard = { action: 'cut', files: [...selected_files] };
+			}
+			case 'cut': {
+				const paths = [...selected_files].map(name =>
+					current_vfs_path === '/' ? '/' + name : current_vfs_path + '/' + name
+				);
+				clipboard_copy_files(paths, 'cut');
 				break;
-			case 'paste':
+			}
+			case 'paste': {
+				const pasted = clipboard_paste_files();
+				if (pasted) {
+					const paste_count = pasted.paths.length;
+					for (const src_path of pasted.paths) {
+						const file_name = src_path.split('/').filter(Boolean).pop();
+						if (!file_name) continue;
+						const dest_path = current_vfs_path === '/'
+							? '/' + file_name
+							: current_vfs_path + '/' + file_name;
+						if (pasted.action === 'cut') {
+							mv(src_path, dest_path);
+						} else {
+							cp(src_path, dest_path);
+						}
+					}
+					const item_label = paste_count === 1 ? '1 item' : `${paste_count} items`;
+					notify({
+						app_name: FINDER_APP,
+						app_icon: FINDER_ICON,
+						title: 'Paste Complete',
+						body: `${item_label} ${pasted.action === 'cut' ? 'moved' : 'pasted'} to ${path_display_name(current_vfs_path)}`,
+					});
+				}
 				break;
+			}
 			case 'rename':
 				if (selected_files.size === 1) {
 					const name = [...selected_files][0];
@@ -460,25 +496,39 @@
 					rename_value = name;
 				}
 				break;
-			case 'duplicate':
-				if (files[current_folder] && selected_files.size > 0) {
-					const dupes: FileEntry[] = [];
-					for (const fname of selected_files) {
-						const f = files[current_folder].find(x => x.name === fname);
-						if (f) {
-							dupes.push({ ...f, name: f.name + ' copy' });
-						}
-					}
-					files[current_folder] = [...files[current_folder], ...dupes];
+			case 'duplicate': {
+				const dup_count = selected_files.size;
+				for (const fname of selected_files) {
+					const src_path = current_vfs_path === '/' ? '/' + fname : current_vfs_path + '/' + fname;
+					const dest_path = src_path + ' copy';
+					cp(src_path, dest_path);
 				}
+				const dup_label = dup_count === 1 ? '1 item' : `${dup_count} items`;
+				notify({
+					app_name: FINDER_APP,
+					app_icon: FINDER_ICON,
+					title: 'Copy Complete',
+					body: `${dup_label} duplicated in ${path_display_name(current_vfs_path)}`,
+				});
 				break;
-			case 'move-to-trash':
-				if (files[current_folder]) {
-					files[current_folder] = files[current_folder].filter(f => !selected_files.has(f.name));
-					selected_files = new Set();
-					focused_index = -1;
+			}
+			case 'move-to-trash': {
+				const trash_count = selected_files.size;
+				for (const fname of selected_files) {
+					const full_path = current_vfs_path === '/' ? '/' + fname : current_vfs_path + '/' + fname;
+					rm(full_path, true);
 				}
+				const trash_label = trash_count === 1 ? '1 item' : `${trash_count} items`;
+				notify({
+					app_name: FINDER_APP,
+					app_icon: FINDER_ICON,
+					title: 'Moved to Trash',
+					body: `${trash_label} moved to Trash`,
+				});
+				selected_files = new Set();
+				focused_index = -1;
 				break;
+			}
 			case 'select-all':
 				selected_files = new Set(current_files.map(f => f.name));
 				break;
@@ -487,12 +537,23 @@
 	}
 
 	function finish_rename() {
-		if (renaming_file && rename_value.trim() && files[current_folder]) {
-			const idx = files[current_folder].findIndex(f => f.name === renaming_file);
-			if (idx >= 0) {
-				files[current_folder][idx] = { ...files[current_folder][idx], name: rename_value.trim() };
-				selected_files = new Set([rename_value.trim()]);
+		if (renaming_file && rename_value.trim()) {
+			const old_path = current_vfs_path === '/'
+				? '/' + renaming_file
+				: current_vfs_path + '/' + renaming_file;
+			const new_path = current_vfs_path === '/'
+				? '/' + rename_value.trim()
+				: current_vfs_path + '/' + rename_value.trim();
+			if (old_path !== new_path) {
+				mv(old_path, new_path);
+				notify({
+					app_name: FINDER_APP,
+					app_icon: FINDER_ICON,
+					title: 'Rename Complete',
+					body: `"${renaming_file}" renamed to "${rename_value.trim()}"`,
+				});
 			}
+			selected_files = new Set([rename_value.trim()]);
 		}
 		renaming_file = null;
 	}
@@ -523,11 +584,10 @@
 	}
 
 	function navigate_to_breadcrumb(index: number) {
-		path_stack = path_stack.slice(0, index + 1);
-		forward_stack = [];
-		selected_files = new Set();
-		renaming_file = null;
-		focused_index = -1;
+		const segment = breadcrumb_segments[index];
+		if (segment) {
+			navigate_to_path(segment.vfs_path);
+		}
 	}
 
 	// Keyboard navigation
@@ -550,11 +610,50 @@
 
 		if (event.key === 'Backspace' && meta) {
 			event.preventDefault();
-			if (selected_files.size > 0 && files[current_folder]) {
-				files[current_folder] = files[current_folder].filter(f => !selected_files.has(f.name));
+			if (selected_files.size > 0) {
+				const del_count = selected_files.size;
+				for (const fname of selected_files) {
+					const full_path = current_vfs_path === '/' ? '/' + fname : current_vfs_path + '/' + fname;
+					rm(full_path, true);
+				}
+				const del_label = del_count === 1 ? '1 item' : `${del_count} items`;
+				notify({
+					app_name: FINDER_APP,
+					app_icon: FINDER_ICON,
+					title: 'Moved to Trash',
+					body: `${del_label} moved to Trash`,
+				});
 				selected_files = new Set();
 				focused_index = -1;
 			}
+			return;
+		}
+
+		if (meta && event.key === 'c') {
+			event.preventDefault();
+			if (selected_files.size > 0) {
+				const paths = [...selected_files].map(name =>
+					current_vfs_path === '/' ? '/' + name : current_vfs_path + '/' + name
+				);
+				clipboard_copy_files(paths, 'copy');
+			}
+			return;
+		}
+
+		if (meta && event.key === 'x') {
+			event.preventDefault();
+			if (selected_files.size > 0) {
+				const paths = [...selected_files].map(name =>
+					current_vfs_path === '/' ? '/' + name : current_vfs_path + '/' + name
+				);
+				clipboard_copy_files(paths, 'cut');
+			}
+			return;
+		}
+
+		if (meta && event.key === 'v') {
+			event.preventDefault();
+			ctx_action('paste');
 			return;
 		}
 
@@ -562,13 +661,13 @@
 			event.preventDefault();
 			const name = [...selected_files][0];
 			const file = current_files.find(f => f.name === name);
-			if (file && file.kind === 'Folder' && files[file.name]) {
-				navigate_to(file.name);
+			if (file) {
+				handle_file_dblclick(file);
 			}
 			return;
 		}
 
-		if (event.key === 'Backspace' && !meta && path_stack.length > 1) {
+		if (event.key === 'Backspace' && !meta && history_index > 0) {
 			event.preventDefault();
 			go_back();
 			return;
@@ -658,6 +757,11 @@
 		window.addEventListener('mouseup', handler);
 		return () => window.removeEventListener('mouseup', handler);
 	});
+
+	// Helper to check if a sidebar item is active
+	function is_sidebar_active(item: { vfs_path: string }): boolean {
+		return item.vfs_path !== '' && current_vfs_path === item.vfs_path;
+	}
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -674,7 +778,7 @@
 			<button
 				class="nav-btn"
 				onclick={go_back}
-				disabled={path_stack.length <= 1}
+				disabled={history_index <= 0}
 				title="Back"
 			>
 				<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -684,7 +788,7 @@
 			<button
 				class="nav-btn"
 				onclick={go_forward}
-				disabled={forward_stack.length === 0}
+				disabled={history_index >= path_history.length - 1}
 				title="Forward"
 			>
 				<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -694,7 +798,7 @@
 		</div>
 
 		<div class="toolbar-title">
-			{#each path_stack as segment, i}
+			{#each breadcrumb_segments as segment, i}
 				{#if i > 0}
 					<span class="title-separator">
 						<svg width="7" height="10" viewBox="0 0 7 10" fill="none">
@@ -704,10 +808,10 @@
 				{/if}
 				<button
 					class="title-segment"
-					class:current={i === path_stack.length - 1}
+					class:current={i === breadcrumb_segments.length - 1}
 					onclick={() => navigate_to_breadcrumb(i)}
 				>
-					{segment}
+					{segment.label}
 				</button>
 			{/each}
 		</div>
@@ -810,10 +914,10 @@
 				{#each sidebar_favorites as item}
 					<button
 						class="sidebar-item"
-						class:active={current_folder === item.name && path_stack.length === 1}
-						onclick={() => navigate_to(item.name, true)}
+						class:active={is_sidebar_active(item)}
+						onclick={() => navigate_sidebar(item)}
 					>
-						<span class="sidebar-icon" class:icon-active={current_folder === item.name && path_stack.length === 1}>
+						<span class="sidebar-icon" class:icon-active={is_sidebar_active(item)}>
 							{@html get_sidebar_svg(item.icon)}
 						</span>
 						<span class="sidebar-label">{item.name}</span>
@@ -826,10 +930,10 @@
 				{#each sidebar_locations as item}
 					<button
 						class="sidebar-item"
-						class:active={current_folder === item.name && path_stack.length === 1}
-						onclick={() => navigate_to(item.name, true)}
+						class:active={is_sidebar_active(item)}
+						onclick={() => navigate_sidebar(item)}
 					>
-						<span class="sidebar-icon" class:icon-active={current_folder === item.name && path_stack.length === 1}>
+						<span class="sidebar-icon" class:icon-active={is_sidebar_active(item)}>
 							{@html get_sidebar_svg(item.icon)}
 						</span>
 						<span class="sidebar-label">{item.name}</span>
@@ -1034,7 +1138,7 @@
 									{@html get_file_icon_svg(file)}
 								</span>
 								<span class="column-file-name">{file.name}</span>
-								{#if file.kind === 'Folder'}
+								{#if file.is_dir}
 									<span class="column-arrow">
 										<svg width="6" height="10" viewBox="0 0 6 10" fill="none">
 											<path d="M1 1l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1047,6 +1151,7 @@
 							<div class="empty-column">Empty</div>
 						{/if}
 					</div>
+
 					<!-- Preview column for selected file -->
 					{#if selected_files.size === 1}
 						{@const sel_name = [...selected_files][0]}
@@ -1141,6 +1246,10 @@
 							<span class="ctx-text">Copy</span>
 							<span class="ctx-shortcut">&#8984;C</span>
 						</button>
+						<button class="ctx-item" onclick={() => ctx_action('cut')}>
+							<span class="ctx-text">Cut</span>
+							<span class="ctx-shortcut">&#8984;X</span>
+						</button>
 						<button class="ctx-item" onclick={() => ctx_action('duplicate')}>
 							<span class="ctx-text">Duplicate</span>
 							<span class="ctx-shortcut">&#8984;D</span>
@@ -1161,7 +1270,7 @@
 							<span class="ctx-shortcut">&#8984;I</span>
 						</button>
 						<div class="ctx-divider"></div>
-						{#if clipboard}
+						{#if can_paste}
 							<button class="ctx-item" onclick={() => ctx_action('paste')}>
 								<span class="ctx-text">Paste Item</span>
 								<span class="ctx-shortcut">&#8984;V</span>

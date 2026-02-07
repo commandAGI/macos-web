@@ -140,11 +140,20 @@
 	}
 
 	// --- Desktop & Dock state ---
-	let dock_size = $state(48);
-	let dock_magnification = $state(true);
-	let dock_position = $state<'Bottom' | 'Left' | 'Right'>('Bottom');
+	// dock_size, dock_magnification, dock_position, and auto_hide_dock are
+	// backed by the persisted preferences so the Dock component can read them.
+	let dock_size = $derived(preferences.dock.size);
+	let dock_magnification = $derived(preferences.dock.magnification);
+
+	// UI shows capitalised labels; stored value is lowercase
+	const position_label_to_value: Record<string, 'left' | 'bottom' | 'right'> = { Left: 'left', Bottom: 'bottom', Right: 'right' };
+	const position_value_to_label: Record<string, string> = { left: 'Left', bottom: 'Bottom', right: 'Right' };
+	let dock_position_label = $derived(
+		position_value_to_label[preferences.dock.position] ?? 'Bottom'
+	);
+
 	let minimize_effect = $state<'Genie' | 'Scale'>('Genie');
-	let auto_hide_dock = $state(false);
+	let auto_hide_dock = $derived(preferences.dock.auto_hide);
 	let show_recent_apps = $state(true);
 	let minimize_into_icon = $state(false);
 	let double_click_titlebar = $state('Zoom');
@@ -600,14 +609,14 @@
 					<span class="setting-row-label">Size</span>
 					<div class="slider-container">
 						<span class="slider-label-sm">Small</span>
-						<input type="range" class="mac-slider" min="16" max="128" bind:value={dock_size} />
+						<input type="range" class="mac-slider" min="16" max="128" value={dock_size} oninput={(e) => { preferences.dock.size = Number(e.currentTarget.value); }} />
 						<span class="slider-label-sm">Large</span>
 					</div>
 				</div>
 				<div class="setting-divider"></div>
 				<div class="setting-row">
 					<span class="setting-row-label">Magnification</span>
-					<button class="toggle" class:on={dock_magnification} onclick={() => dock_magnification = !dock_magnification}>
+					<button class="toggle" class:on={dock_magnification} onclick={() => { preferences.dock.magnification = !preferences.dock.magnification; }}>
 						<span class="toggle-knob"></span>
 					</button>
 				</div>
@@ -618,8 +627,8 @@
 						{#each ['Left', 'Bottom', 'Right'] as pos}
 							<button
 								class="segment"
-								class:active={dock_position === pos}
-								onclick={() => dock_position = pos as typeof dock_position}
+								class:active={dock_position_label === pos}
+								onclick={() => { preferences.dock.position = position_label_to_value[pos]; }}
 							>{pos}</button>
 						{/each}
 					</div>
@@ -640,7 +649,7 @@
 						<span class="setting-row-label">Automatically hide and show the Dock</span>
 						<span class="setting-row-desc">The Dock will disappear when not in use</span>
 					</div>
-					<button class="toggle" class:on={auto_hide_dock} onclick={() => auto_hide_dock = !auto_hide_dock}>
+					<button class="toggle" class:on={auto_hide_dock} onclick={() => { preferences.dock.auto_hide = !preferences.dock.auto_hide; }}>
 						<span class="toggle-knob"></span>
 					</button>
 				</div>
