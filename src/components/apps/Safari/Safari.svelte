@@ -1411,7 +1411,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 6px 14px;
+		padding: 6px 10px;
 		font-size: 11px;
 		font-weight: 600;
 		color: #86868b;
@@ -1422,7 +1422,7 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		padding: 4px 14px 4px 28px;
+		padding: 4px 10px 4px 22px;
 		border: none;
 		background: none;
 		font-size: 12px;

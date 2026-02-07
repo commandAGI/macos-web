@@ -1500,16 +1500,17 @@
 		font-size: 11px;
 		font-weight: 700;
 		color: #86868b;
-		padding: 8px 16px 4px;
+		padding: 8px 10px 4px;
+		text-align: left;
 	}
 
 	.sidebar-item {
 		display: flex;
 		align-items: center;
-		gap: 7px;
-		width: calc(100% - 16px);
-		margin: 0 8px;
-		padding: 3px 8px;
+		gap: 6px;
+		width: calc(100% - 8px);
+		margin: 0 4px;
+		padding: 3px 6px;
 		height: 22px;
 		border: none;
 		background: none;
