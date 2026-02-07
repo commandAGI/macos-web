@@ -81,11 +81,13 @@
 	let volume = $state(75);
 	let progress = $state(0); // 0-100
 	let is_dragging_progress = $state(false);
+	let is_dragging_volume = $state(false);
 	let show_queue = $state(false);
 	let search_query = $state('');
 	let selected_album_id = $state<number | null>(null);
 	let selected_playlist_id = $state<number | null>(null);
 	let progress_interval: ReturnType<typeof setInterval> | null = null;
+	let progress_track_el: HTMLElement | null = $state(null);
 
 	// ── Derived ──
 	let current_song = $derived(current_song_id ? songs.find(s => s.id === current_song_id) ?? null : null);
@@ -166,6 +168,15 @@
 		return [...map.values()];
 	});
 
+	// Total duration helper for album/playlist
+	let selected_album_duration = $derived.by(() => {
+		return selected_album_songs.reduce((sum, s) => sum + s.duration, 0);
+	});
+
+	let selected_playlist_duration = $derived.by(() => {
+		return selected_playlist_songs.reduce((sum, s) => sum + s.duration, 0);
+	});
+
 	// ── Helpers ──
 	function format_time(seconds: number): string {
 		const m = Math.floor(seconds / 60);
@@ -175,6 +186,13 @@
 
 	function format_duration(seconds: number): string {
 		return format_time(seconds);
+	}
+
+	function format_total_duration(seconds: number): string {
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		if (h > 0) return `${h} hr ${m} min`;
+		return `${m} min`;
 	}
 
 	function get_album_for_song(song: Song): Album | undefined {
@@ -217,6 +235,7 @@
 	function next_song() {
 		if (repeat_mode === 'one' && current_song) {
 			progress = 0;
+			is_playing = true;
 			start_progress();
 			return;
 		}
@@ -246,6 +265,10 @@
 		} else if (repeat_mode === 'all') {
 			// Restart all songs
 			play_song(songs[0], songs);
+		} else {
+			// No more songs, stop
+			is_playing = false;
+			stop_progress();
 		}
 	}
 
@@ -288,24 +311,12 @@
 		}
 	}
 
-	function handle_progress_click(e: MouseEvent) {
-		const bar = e.currentTarget as HTMLElement;
-		const rect = bar.getBoundingClientRect();
-		const x = e.clientX - rect.left;
-		progress = Math.max(0, Math.min(100, (x / rect.width) * 100));
-	}
-
 	function handle_progress_mousedown(e: MouseEvent) {
 		is_dragging_progress = true;
-		handle_progress_click(e);
+		update_progress_from_event(e);
 
-		const handle_move = (e: MouseEvent) => {
-			const bar = document.querySelector('.progress-track') as HTMLElement;
-			if (bar) {
-				const rect = bar.getBoundingClientRect();
-				const x = e.clientX - rect.left;
-				progress = Math.max(0, Math.min(100, (x / rect.width) * 100));
-			}
+		const handle_move = (ev: MouseEvent) => {
+			update_progress_from_event(ev);
 		};
 
 		const handle_up = () => {
@@ -318,9 +329,36 @@
 		window.addEventListener('mouseup', handle_up);
 	}
 
-	function handle_volume_click(e: MouseEvent) {
-		const bar = e.currentTarget as HTMLElement;
-		const rect = bar.getBoundingClientRect();
+	function update_progress_from_event(e: MouseEvent) {
+		if (!progress_track_el) return;
+		const rect = progress_track_el.getBoundingClientRect();
+		const x = e.clientX - rect.left;
+		progress = Math.max(0, Math.min(100, (x / rect.width) * 100));
+	}
+
+	function handle_volume_mousedown(e: MouseEvent) {
+		is_dragging_volume = true;
+		update_volume_from_event(e);
+
+		const handle_move = (ev: MouseEvent) => {
+			update_volume_from_event(ev);
+		};
+
+		const handle_up = () => {
+			is_dragging_volume = false;
+			window.removeEventListener('mousemove', handle_move);
+			window.removeEventListener('mouseup', handle_up);
+		};
+
+		window.addEventListener('mousemove', handle_move);
+		window.addEventListener('mouseup', handle_up);
+	}
+
+	function update_volume_from_event(e: MouseEvent) {
+		const track = (e.target as HTMLElement).closest('.volume-track') as HTMLElement
+			?? document.querySelector('.volume-track') as HTMLElement;
+		if (!track) return;
+		const rect = track.getBoundingClientRect();
 		const x = e.clientX - rect.left;
 		volume = Math.max(0, Math.min(100, (x / rect.width) * 100));
 	}
@@ -436,6 +474,7 @@
 						<button
 							class="sidebar-item"
 							class:active={active_section === item.id}
+							class:apple-music-item={group.title === 'Apple Music'}
 							onclick={() => {
 								active_section = item.id;
 								selected_album_id = null;
@@ -472,56 +511,237 @@
 		<div class="content" class:queue-open={show_queue}>
 			<!-- Search View -->
 			{#if active_section === 'search' && search_query}
-				<div class="content-header">
-					<h1>Search Results</h1>
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Search Results</h1>
+					</div>
+
+					{#if !has_search_results}
+						<div class="empty-state">
+							<div class="empty-icon">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+									<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+								</svg>
+							</div>
+							<p>No results for "{search_query}"</p>
+						</div>
+					{:else}
+						{#if search_results.artists.length > 0}
+							<div class="section-title">Artists</div>
+							<div class="search-artists-row">
+								{#each search_results.artists as artist_name}
+									{@const artist_data = all_artists.find(a => a.name === artist_name)}
+									<button class="artist-pill" onclick={() => open_artist(artist_name)}>
+										<div class="artist-pill-avatar" style:background={artist_data?.gradient ?? ''}></div>
+										<span>{artist_name}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+
+						{#if search_results.albums.length > 0}
+							<div class="section-title">Albums</div>
+							<div class="album-row">
+								{#each search_results.albums as album}
+									<button class="album-card" onclick={() => open_album(album.id)}>
+										<div class="album-art" style:background={album.gradient}>
+											<span class="album-art-letter">{album.title.charAt(0)}</span>
+										</div>
+										<div class="album-card-title">{album.title}</div>
+										<div class="album-card-artist">{album.artist}</div>
+									</button>
+								{/each}
+							</div>
+						{/if}
+
+						{#if search_results.songs.length > 0}
+							<div class="section-title">Songs</div>
+							<div class="song-list">
+								{#each search_results.songs as song, i}
+									<button
+										class="song-row"
+										class:playing={current_song_id === song.id}
+										class:odd={i % 2 === 1}
+										onclick={() => play_song(song, search_results.songs)}
+									>
+										<span class="song-num">
+											{#if current_song_id === song.id && is_playing}
+												<span class="equalizer">
+													<span class="eq-bar"></span>
+													<span class="eq-bar"></span>
+													<span class="eq-bar"></span>
+												</span>
+											{:else}
+												{i + 1}
+											{/if}
+										</span>
+										<div class="song-info-cell">
+											<div class="song-art-mini" style:background={get_album_for_song(song)?.gradient ?? ''}></div>
+											<div>
+												<div class="song-cell-title">{song.title}</div>
+												<div class="song-cell-artist">{song.artist}</div>
+											</div>
+										</div>
+										<span class="song-album-col">{song.album}</span>
+										<span class="song-duration-col">{format_duration(song.duration)}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					{/if}
 				</div>
 
-				{#if !has_search_results}
-					<div class="empty-state">
-						<div class="empty-icon">
-							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
-								<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-							</svg>
-						</div>
-						<p>No results for "{search_query}"</p>
+			<!-- Listen Now View -->
+			{:else if active_section === 'listen-now'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Listen Now</h1>
 					</div>
-				{:else}
-					{#if search_results.artists.length > 0}
-						<div class="section-title">Artists</div>
-						<div class="search-artists-row">
-							{#each search_results.artists as artist_name}
-								{@const artist_data = all_artists.find(a => a.name === artist_name)}
-								<button class="artist-pill" onclick={() => open_artist(artist_name)}>
-									<div class="artist-pill-avatar" style:background={artist_data?.gradient ?? ''}></div>
-									<span>{artist_name}</span>
-								</button>
-							{/each}
-						</div>
-					{/if}
 
-					{#if search_results.albums.length > 0}
-						<div class="section-title">Albums</div>
-						<div class="album-row">
-							{#each search_results.albums as album}
-								<button class="album-card" onclick={() => open_album(album.id)}>
-									<div class="album-art" style:background={album.gradient}>
-										<span class="album-art-letter">{album.title.charAt(0)}</span>
+					<!-- Hero Cards -->
+					<div class="hero-row">
+						{#each featured_albums as album}
+							<button class="hero-card" onclick={() => open_album(album.id)}>
+								<div class="hero-art" style:background={album.gradient}>
+									<div class="hero-overlay">
+										<div class="hero-genre">{album.genre}</div>
+										<div class="hero-title">{album.title}</div>
+										<div class="hero-artist">{album.artist}</div>
 									</div>
-									<div class="album-card-title">{album.title}</div>
-									<div class="album-card-artist">{album.artist}</div>
-								</button>
-							{/each}
-						</div>
-					{/if}
+								</div>
+							</button>
+						{/each}
+					</div>
 
-					{#if search_results.songs.length > 0}
-						<div class="section-title">Songs</div>
-						<div class="song-list">
-							{#each search_results.songs as song, i}
+					<!-- Recently Played -->
+					<div class="section-title">Recently Played</div>
+					<div class="album-row">
+						{#each recently_played_albums as album}
+							<button class="album-card" onclick={() => open_album(album.id)}>
+								<div class="album-art" style:background={album.gradient}>
+									<span class="album-art-letter">{album.title.charAt(0)}</span>
+								</div>
+								<div class="album-card-title">{album.title}</div>
+								<div class="album-card-artist">{album.artist}</div>
+							</button>
+						{/each}
+					</div>
+
+					<!-- Made For You -->
+					<div class="section-title">Made For You</div>
+					<div class="playlist-row">
+						{#each playlists as playlist}
+							<button class="playlist-card" onclick={() => open_playlist(playlist.id)}>
+								<div class="playlist-art" style:background={playlist.gradient}>
+									<span class="playlist-art-icon">
+										<svg width="24" height="24" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+									</span>
+								</div>
+								<div class="playlist-card-title">{playlist.title}</div>
+								<div class="playlist-card-desc">{playlist.description}</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+			<!-- Browse View -->
+			{:else if active_section === 'browse'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Browse</h1>
+					</div>
+
+					<div class="section-title">Top Picks</div>
+					<div class="hero-row">
+						{#each albums.slice(0, 3) as album}
+							<button class="hero-card" onclick={() => open_album(album.id)}>
+								<div class="hero-art" style:background={album.gradient}>
+									<div class="hero-overlay">
+										<div class="hero-genre">{album.genre}</div>
+										<div class="hero-title">{album.title}</div>
+										<div class="hero-artist">{album.artist}</div>
+									</div>
+								</div>
+							</button>
+						{/each}
+					</div>
+
+					<div class="section-title">New Releases</div>
+					<div class="album-row">
+						{#each albums as album}
+							<button class="album-card" onclick={() => open_album(album.id)}>
+								<div class="album-art" style:background={album.gradient}>
+									<span class="album-art-letter">{album.title.charAt(0)}</span>
+								</div>
+								<div class="album-card-title">{album.title}</div>
+								<div class="album-card-artist">{album.artist}</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+			<!-- Radio View -->
+			{:else if active_section === 'radio'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Radio</h1>
+					</div>
+
+					<div class="section-title">Featured Stations</div>
+					<div class="radio-grid">
+						{#each [
+							{ name: 'Hits Station', desc: 'Today\'s biggest hits', gradient: 'linear-gradient(135deg, #fa2d48, #a10d2b)' },
+							{ name: 'Chill Station', desc: 'Relax and unwind', gradient: 'linear-gradient(135deg, #4facfe, #00f2fe)' },
+							{ name: 'Indie Station', desc: 'Discover new artists', gradient: 'linear-gradient(135deg, #f093fb, #f5576c)' },
+							{ name: 'Jazz Station', desc: 'Smooth jazz all day', gradient: 'linear-gradient(135deg, #43e97b, #38f9d7)' },
+						] as station}
+							<button class="radio-card" onclick={() => { play_song(songs[Math.floor(Math.random() * songs.length)], songs); }}>
+								<div class="radio-art" style:background={station.gradient}>
+									<svg width="32" height="32" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4v-2h14v2z"/></svg>
+								</div>
+								<div class="radio-name">{station.name}</div>
+								<div class="radio-desc">{station.desc}</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+			<!-- Album Detail View -->
+			{:else if active_section === 'album-detail' && selected_album}
+				<div class="view-enter">
+					<div class="album-detail">
+						<button class="back-btn" onclick={() => { active_section = 'albums'; selected_album_id = null; }}>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+							Back
+						</button>
+						<div class="album-detail-header">
+							<div class="album-detail-art" style:background={selected_album.gradient}>
+								<span class="album-detail-letter">{selected_album.title.charAt(0)}</span>
+							</div>
+							<div class="album-detail-info">
+								<div class="album-detail-title">{selected_album.title}</div>
+								<div class="album-detail-artist">{selected_album.artist}</div>
+								<div class="album-detail-meta">{selected_album.genre} &middot; {selected_album.year} &middot; {selected_album_songs.length} songs, {format_total_duration(selected_album_duration)}</div>
+								<div class="album-detail-actions">
+									<button class="play-album-btn" onclick={() => play_album(selected_album)}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+										Play
+									</button>
+									<button class="shuffle-album-btn" onclick={() => { shuffle_on = true; play_album(selected_album); }}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+										Shuffle
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<div class="song-list album-song-list">
+							{#each selected_album_songs as song, i}
 								<button
 									class="song-row"
 									class:playing={current_song_id === song.id}
-									onclick={() => play_song(song, search_results.songs)}
+									class:odd={i % 2 === 1}
+									onclick={() => play_song(song, selected_album_songs)}
 								>
 									<span class="song-num">
 										{#if current_song_id === song.id && is_playing}
@@ -529,6 +749,70 @@
 												<span class="eq-bar"></span>
 												<span class="eq-bar"></span>
 												<span class="eq-bar"></span>
+											</span>
+										{:else if current_song_id === song.id}
+											<span class="paused-indicator">
+												<svg width="10" height="10" viewBox="0 0 24 24" fill="#fa2d48"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+											</span>
+										{:else}
+											{song.track_number}
+										{/if}
+									</span>
+									<span class="song-title-col">{song.title}</span>
+									<span class="song-duration-col">{format_duration(song.duration)}</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+			<!-- Playlist Detail View -->
+			{:else if active_section === 'playlist-detail' && selected_playlist}
+				<div class="view-enter">
+					<div class="album-detail">
+						<button class="back-btn" onclick={() => { active_section = 'playlists'; selected_playlist_id = null; }}>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+							Back
+						</button>
+						<div class="album-detail-header">
+							<div class="album-detail-art" style:background={selected_playlist.gradient}>
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+							</div>
+							<div class="album-detail-info">
+								<div class="album-detail-title">{selected_playlist.title}</div>
+								<div class="album-detail-meta">{selected_playlist.description}</div>
+								<div class="album-detail-meta">{selected_playlist_songs.length} songs, {format_total_duration(selected_playlist_duration)}</div>
+								<div class="album-detail-actions">
+									<button class="play-album-btn" onclick={() => play_playlist(selected_playlist)}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+										Play
+									</button>
+									<button class="shuffle-album-btn" onclick={() => { shuffle_on = true; play_playlist(selected_playlist); }}>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+										Shuffle
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<div class="song-list">
+							{#each selected_playlist_songs as song, i}
+								<button
+									class="song-row"
+									class:playing={current_song_id === song.id}
+									class:odd={i % 2 === 1}
+									onclick={() => play_song(song, selected_playlist_songs)}
+								>
+									<span class="song-num">
+										{#if current_song_id === song.id && is_playing}
+											<span class="equalizer">
+												<span class="eq-bar"></span>
+												<span class="eq-bar"></span>
+												<span class="eq-bar"></span>
+											</span>
+										{:else if current_song_id === song.id}
+											<span class="paused-indicator">
+												<svg width="10" height="10" viewBox="0 0 24 24" fill="#fa2d48"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
 											</span>
 										{:else}
 											{i + 1}
@@ -546,205 +830,94 @@
 								</button>
 							{/each}
 						</div>
-					{/if}
-				{/if}
-
-			<!-- Listen Now View -->
-			{:else if active_section === 'listen-now'}
-				<div class="content-header">
-					<h1>Listen Now</h1>
+					</div>
 				</div>
 
-				<!-- Hero Cards -->
-				<div class="hero-row">
-					{#each featured_albums as album, i}
-						<button class="hero-card" onclick={() => open_album(album.id)}>
-							<div class="hero-art" style:background={album.gradient}>
-								<div class="hero-overlay">
-									<div class="hero-genre">{album.genre}</div>
-									<div class="hero-title">{album.title}</div>
-									<div class="hero-artist">{album.artist}</div>
-								</div>
-							</div>
-						</button>
-					{/each}
-				</div>
-
-				<!-- Recently Played -->
-				<div class="section-title">Recently Played</div>
-				<div class="album-row">
-					{#each recently_played_albums as album}
-						<button class="album-card" onclick={() => open_album(album.id)}>
-							<div class="album-art" style:background={album.gradient}>
-								<span class="album-art-letter">{album.title.charAt(0)}</span>
-							</div>
-							<div class="album-card-title">{album.title}</div>
-							<div class="album-card-artist">{album.artist}</div>
-						</button>
-					{/each}
-				</div>
-
-				<!-- Made For You -->
-				<div class="section-title">Made For You</div>
-				<div class="playlist-row">
-					{#each playlists as playlist}
-						<button class="playlist-card" onclick={() => open_playlist(playlist.id)}>
-							<div class="playlist-art" style:background={playlist.gradient}>
-								<span class="playlist-art-icon">
-									<svg width="24" height="24" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-								</span>
-							</div>
-							<div class="playlist-card-title">{playlist.title}</div>
-							<div class="playlist-card-desc">{playlist.description}</div>
-						</button>
-					{/each}
-				</div>
-
-			<!-- Browse View -->
-			{:else if active_section === 'browse'}
-				<div class="content-header">
-					<h1>Browse</h1>
-				</div>
-
-				<div class="section-title">Top Picks</div>
-				<div class="hero-row">
-					{#each albums.slice(0, 3) as album}
-						<button class="hero-card" onclick={() => open_album(album.id)}>
-							<div class="hero-art" style:background={album.gradient}>
-								<div class="hero-overlay">
-									<div class="hero-genre">{album.genre}</div>
-									<div class="hero-title">{album.title}</div>
-									<div class="hero-artist">{album.artist}</div>
-								</div>
-							</div>
-						</button>
-					{/each}
-				</div>
-
-				<div class="section-title">New Releases</div>
-				<div class="album-row">
-					{#each albums as album}
-						<button class="album-card" onclick={() => open_album(album.id)}>
-							<div class="album-art" style:background={album.gradient}>
-								<span class="album-art-letter">{album.title.charAt(0)}</span>
-							</div>
-							<div class="album-card-title">{album.title}</div>
-							<div class="album-card-artist">{album.artist}</div>
-						</button>
-					{/each}
-				</div>
-
-			<!-- Radio View -->
-			{:else if active_section === 'radio'}
-				<div class="content-header">
-					<h1>Radio</h1>
-				</div>
-
-				<div class="section-title">Featured Stations</div>
-				<div class="radio-grid">
-					{#each [
-						{ name: 'Hits Station', desc: 'Today\'s biggest hits', gradient: 'linear-gradient(135deg, #fa2d48, #a10d2b)' },
-						{ name: 'Chill Station', desc: 'Relax and unwind', gradient: 'linear-gradient(135deg, #4facfe, #00f2fe)' },
-						{ name: 'Indie Station', desc: 'Discover new artists', gradient: 'linear-gradient(135deg, #f093fb, #f5576c)' },
-						{ name: 'Jazz Station', desc: 'Smooth jazz all day', gradient: 'linear-gradient(135deg, #43e97b, #38f9d7)' },
-					] as station}
-						<button class="radio-card" onclick={() => { play_song(songs[Math.floor(Math.random() * songs.length)], songs); }}>
-							<div class="radio-art" style:background={station.gradient}>
-								<svg width="32" height="32" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4v-2h14v2z"/></svg>
-							</div>
-							<div class="radio-name">{station.name}</div>
-							<div class="radio-desc">{station.desc}</div>
-						</button>
-					{/each}
-				</div>
-
-			<!-- Album Detail View -->
-			{:else if active_section === 'album-detail' && selected_album}
-				<div class="album-detail">
-					<button class="back-btn" onclick={() => { active_section = 'albums'; selected_album_id = null; }}>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-						Back
-					</button>
-					<div class="album-detail-header">
-						<div class="album-detail-art" style:background={selected_album.gradient}>
-							<span class="album-detail-letter">{selected_album.title.charAt(0)}</span>
-						</div>
-						<div class="album-detail-info">
-							<div class="album-detail-title">{selected_album.title}</div>
-							<div class="album-detail-artist">{selected_album.artist}</div>
-							<div class="album-detail-meta">{selected_album.genre} &middot; {selected_album.year} &middot; {selected_album_songs.length} songs</div>
-							<div class="album-detail-actions">
-								<button class="play-album-btn" onclick={() => play_album(selected_album)}>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-									Play
-								</button>
-								<button class="shuffle-album-btn" onclick={() => { shuffle_on = true; play_album(selected_album); }}>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
-									Shuffle
-								</button>
-							</div>
-						</div>
+			<!-- Recently Added View -->
+			{:else if active_section === 'recently-added'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Recently Added</h1>
 					</div>
 
-					<div class="song-list album-song-list">
-						{#each selected_album_songs as song, i}
-							<button
-								class="song-row"
-								class:playing={current_song_id === song.id}
-								onclick={() => play_song(song, selected_album_songs)}
-							>
-								<span class="song-num">
-									{#if current_song_id === song.id && is_playing}
-										<span class="equalizer">
-											<span class="eq-bar"></span>
-											<span class="eq-bar"></span>
-											<span class="eq-bar"></span>
-										</span>
-									{:else}
-										{song.track_number}
-									{/if}
-								</span>
-								<span class="song-title-col">{song.title}</span>
-								<span class="song-duration-col">{format_duration(song.duration)}</span>
+					<div class="album-grid">
+						{#each [...albums].reverse() as album}
+							<button class="album-card" onclick={() => open_album(album.id)}>
+								<div class="album-art" style:background={album.gradient}>
+									<span class="album-art-letter">{album.title.charAt(0)}</span>
+								</div>
+								<div class="album-card-title">{album.title}</div>
+								<div class="album-card-artist">{album.artist}</div>
 							</button>
 						{/each}
 					</div>
 				</div>
 
-			<!-- Playlist Detail View -->
-			{:else if active_section === 'playlist-detail' && selected_playlist}
-				<div class="album-detail">
-					<button class="back-btn" onclick={() => { active_section = 'playlists'; selected_playlist_id = null; }}>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-						Back
-					</button>
-					<div class="album-detail-header">
-						<div class="album-detail-art" style:background={selected_playlist.gradient}>
-							<svg width="48" height="48" viewBox="0 0 24 24" fill="rgba(255,255,255,0.9)"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-						</div>
-						<div class="album-detail-info">
-							<div class="album-detail-title">{selected_playlist.title}</div>
-							<div class="album-detail-meta">{selected_playlist.description}</div>
-							<div class="album-detail-meta">{selected_playlist_songs.length} songs</div>
-							<div class="album-detail-actions">
-								<button class="play-album-btn" onclick={() => play_playlist(selected_playlist)}>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-									Play
-								</button>
-								<button class="shuffle-album-btn" onclick={() => { shuffle_on = true; play_playlist(selected_playlist); }}>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
-									Shuffle
-								</button>
-							</div>
-						</div>
+			<!-- Artists View -->
+			{:else if active_section === 'artists'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Artists</h1>
+					</div>
+
+					<div class="artists-list">
+						{#each all_artists as artist}
+							<button class="artist-row" onclick={() => open_artist(artist.name)}>
+								<div class="artist-avatar" style:background={artist.gradient}>
+									<span>{artist.name.charAt(0)}</span>
+								</div>
+								<div class="artist-info">
+									<div class="artist-name">{artist.name}</div>
+									<div class="artist-meta">{artist.album_count} album{artist.album_count !== 1 ? 's' : ''} &middot; {artist.song_count} songs</div>
+								</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+			<!-- Albums View -->
+			{:else if active_section === 'albums'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Albums</h1>
+					</div>
+
+					<div class="album-grid">
+						{#each albums as album}
+							<button class="album-card" onclick={() => open_album(album.id)}>
+								<div class="album-art" style:background={album.gradient}>
+									<span class="album-art-letter">{album.title.charAt(0)}</span>
+								</div>
+								<div class="album-card-title">{album.title}</div>
+								<div class="album-card-artist">{album.artist}</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+			<!-- Songs View -->
+			{:else if active_section === 'songs'}
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Songs</h1>
 					</div>
 
 					<div class="song-list">
-						{#each selected_playlist_songs as song, i}
+						<div class="song-header-row">
+							<span class="song-num">#</span>
+							<span class="song-title-col">Title</span>
+							<span class="song-artist-col">Artist</span>
+							<span class="song-album-col">Album</span>
+							<span class="song-duration-col">
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" opacity="0.5"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+							</span>
+						</div>
+						{#each songs as song, i}
 							<button
 								class="song-row"
 								class:playing={current_song_id === song.id}
-								onclick={() => play_song(song, selected_playlist_songs)}
+								class:odd={i % 2 === 1}
+								onclick={() => play_song(song, songs)}
 							>
 								<span class="song-num">
 									{#if current_song_id === song.id && is_playing}
@@ -753,17 +926,16 @@
 											<span class="eq-bar"></span>
 											<span class="eq-bar"></span>
 										</span>
+									{:else if current_song_id === song.id}
+										<span class="paused-indicator">
+											<svg width="10" height="10" viewBox="0 0 24 24" fill="#fa2d48"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+										</span>
 									{:else}
 										{i + 1}
 									{/if}
 								</span>
-								<div class="song-info-cell">
-									<div class="song-art-mini" style:background={get_album_for_song(song)?.gradient ?? ''}></div>
-									<div>
-										<div class="song-cell-title">{song.title}</div>
-										<div class="song-cell-artist">{song.artist}</div>
-									</div>
-								</div>
+								<span class="song-title-col">{song.title}</span>
+								<span class="song-artist-col">{song.artist}</span>
 								<span class="song-album-col">{song.album}</span>
 								<span class="song-duration-col">{format_duration(song.duration)}</span>
 							</button>
@@ -771,117 +943,24 @@
 					</div>
 				</div>
 
-			<!-- Recently Added View -->
-			{:else if active_section === 'recently-added'}
-				<div class="content-header">
-					<h1>Recently Added</h1>
-				</div>
-
-				<div class="album-grid">
-					{#each [...albums].reverse() as album}
-						<button class="album-card" onclick={() => open_album(album.id)}>
-							<div class="album-art" style:background={album.gradient}>
-								<span class="album-art-letter">{album.title.charAt(0)}</span>
-							</div>
-							<div class="album-card-title">{album.title}</div>
-							<div class="album-card-artist">{album.artist}</div>
-						</button>
-					{/each}
-				</div>
-
-			<!-- Artists View -->
-			{:else if active_section === 'artists'}
-				<div class="content-header">
-					<h1>Artists</h1>
-				</div>
-
-				<div class="artists-list">
-					{#each all_artists as artist}
-						<button class="artist-row" onclick={() => open_artist(artist.name)}>
-							<div class="artist-avatar" style:background={artist.gradient}>
-								<span>{artist.name.charAt(0)}</span>
-							</div>
-							<div class="artist-info">
-								<div class="artist-name">{artist.name}</div>
-								<div class="artist-meta">{artist.album_count} album{artist.album_count !== 1 ? 's' : ''} &middot; {artist.song_count} songs</div>
-							</div>
-						</button>
-					{/each}
-				</div>
-
-			<!-- Albums View -->
-			{:else if active_section === 'albums'}
-				<div class="content-header">
-					<h1>Albums</h1>
-				</div>
-
-				<div class="album-grid">
-					{#each albums as album}
-						<button class="album-card" onclick={() => open_album(album.id)}>
-							<div class="album-art" style:background={album.gradient}>
-								<span class="album-art-letter">{album.title.charAt(0)}</span>
-							</div>
-							<div class="album-card-title">{album.title}</div>
-							<div class="album-card-artist">{album.artist}</div>
-						</button>
-					{/each}
-				</div>
-
-			<!-- Songs View -->
-			{:else if active_section === 'songs'}
-				<div class="content-header">
-					<h1>Songs</h1>
-				</div>
-
-				<div class="song-list">
-					<div class="song-header-row">
-						<span class="song-num">#</span>
-						<span class="song-title-col">Title</span>
-						<span class="song-artist-col">Artist</span>
-						<span class="song-album-col">Album</span>
-						<span class="song-duration-col">Time</span>
-					</div>
-					{#each songs as song, i}
-						<button
-							class="song-row"
-							class:playing={current_song_id === song.id}
-							onclick={() => play_song(song, songs)}
-						>
-							<span class="song-num">
-								{#if current_song_id === song.id && is_playing}
-									<span class="equalizer">
-										<span class="eq-bar"></span>
-										<span class="eq-bar"></span>
-										<span class="eq-bar"></span>
-									</span>
-								{:else}
-									{i + 1}
-								{/if}
-							</span>
-							<span class="song-title-col">{song.title}</span>
-							<span class="song-artist-col">{song.artist}</span>
-							<span class="song-album-col">{song.album}</span>
-							<span class="song-duration-col">{format_duration(song.duration)}</span>
-						</button>
-					{/each}
-				</div>
-
 			<!-- Playlists View -->
 			{:else if active_section === 'playlists'}
-				<div class="content-header">
-					<h1>Playlists</h1>
-				</div>
+				<div class="view-enter">
+					<div class="content-header">
+						<h1>Playlists</h1>
+					</div>
 
-				<div class="album-grid">
-					{#each playlists as playlist}
-						<button class="playlist-card-large" onclick={() => open_playlist(playlist.id)}>
-							<div class="playlist-art-large" style:background={playlist.gradient}>
-								<svg width="36" height="36" viewBox="0 0 24 24" fill="rgba(255,255,255,0.85)"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-							</div>
-							<div class="playlist-card-title">{playlist.title}</div>
-							<div class="playlist-card-desc">{playlist.description}</div>
-						</button>
-					{/each}
+					<div class="album-grid">
+						{#each playlists as playlist}
+							<button class="playlist-card-large" onclick={() => open_playlist(playlist.id)}>
+								<div class="playlist-art-large" style:background={playlist.gradient}>
+									<svg width="36" height="36" viewBox="0 0 24 24" fill="rgba(255,255,255,0.85)"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+								</div>
+								<div class="playlist-card-title">{playlist.title}</div>
+								<div class="playlist-card-desc">{playlist.description}</div>
+							</button>
+						{/each}
+					</div>
 				</div>
 			{/if}
 
@@ -956,17 +1035,17 @@
 				<button class="np-ctrl-btn" class:active={shuffle_on} onclick={toggle_shuffle} title="Shuffle">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
 				</button>
-				<button class="np-ctrl-btn" onclick={prev_song} title="Previous">
+				<button class="np-ctrl-btn np-skip-btn" onclick={prev_song} title="Previous">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
 				</button>
 				<button class="np-play-btn" onclick={toggle_play} title={is_playing ? 'Pause' : 'Play'}>
 					{#if is_playing}
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
 					{:else}
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
 					{/if}
 				</button>
-				<button class="np-ctrl-btn" onclick={next_song} title="Next">
+				<button class="np-ctrl-btn np-skip-btn" onclick={next_song} title="Next">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
 				</button>
 				<button class="np-ctrl-btn" class:active={repeat_mode !== 'off'} onclick={toggle_repeat} title="Repeat">
@@ -981,7 +1060,12 @@
 			<div class="np-progress-row">
 				<span class="np-time">{current_time_display.current}</span>
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="progress-track" onmousedown={handle_progress_mousedown}>
+				<div
+					class="progress-track"
+					class:dragging={is_dragging_progress}
+					bind:this={progress_track_el}
+					onmousedown={handle_progress_mousedown}
+				>
 					<div class="progress-fill" style:width="{progress}%">
 						<div class="progress-thumb"></div>
 					</div>
@@ -996,7 +1080,7 @@
 			</button>
 
 			<div class="volume-container">
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.5">
+				<svg class="volume-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
 					{#if volume === 0}
 						<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
 					{:else if volume < 50}
@@ -1006,8 +1090,10 @@
 					{/if}
 				</svg>
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="volume-track" onclick={handle_volume_click}>
-					<div class="volume-fill" style:width="{volume}%"></div>
+				<div class="volume-track" onmousedown={handle_volume_mousedown}>
+					<div class="volume-fill" style:width="{volume}%">
+						<div class="volume-thumb"></div>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -1079,6 +1165,7 @@
 		color: var(--system-color-light-contrast);
 		outline: none;
 		font-family: inherit;
+		transition: background 0.2s;
 
 		&::placeholder {
 			color: #86868b;
@@ -1086,6 +1173,7 @@
 
 		&:focus {
 			background: rgba(0, 0, 0, 0.09);
+			box-shadow: 0 0 0 2px rgba(250, 45, 72, 0.3);
 		}
 
 		:global(body.dark) & {
@@ -1124,21 +1212,23 @@
 
 	/* ── Sidebar ── */
 	.sidebar {
-		width: 200px;
-		min-width: 200px;
-		background: #f2f2f7;
+		width: 220px;
+		min-width: 220px;
+		background: rgba(242, 242, 247, 0.85);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
 		border-right: 1px solid #d1d1d6;
 		padding: 8px 0;
 		overflow-y: auto;
 
 		:global(body.dark) & {
-			background: #1c1c1e;
+			background: rgba(28, 28, 30, 0.85);
 			border-right-color: #38383a;
 		}
 	}
 
 	.sidebar-section {
-		margin-bottom: 8px;
+		margin-bottom: 4px;
 	}
 
 	.sidebar-section-title {
@@ -1146,7 +1236,7 @@
 		font-weight: 700;
 		color: #86868b;
 		text-transform: uppercase;
-		padding: 6px 16px 2px;
+		padding: 8px 16px 4px;
 		letter-spacing: 0.3px;
 	}
 
@@ -1154,8 +1244,8 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		width: calc(100% - 12px);
-		margin: 0 6px;
+		width: calc(100% - 16px);
+		margin: 1px 8px;
 		padding: 5px 10px;
 		border: none;
 		background: none;
@@ -1165,6 +1255,8 @@
 		text-align: left;
 		border-radius: 6px;
 		transition: background 0.1s;
+		height: 30px;
+		box-sizing: border-box;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.04);
@@ -1175,9 +1267,20 @@
 		}
 
 		&.active {
-			background: #fa2d48;
-			color: white;
+			background: rgba(250, 45, 72, 0.12);
+			color: #fa2d48;
 			font-weight: 500;
+
+			:global(body.dark) & {
+				background: rgba(250, 45, 72, 0.2);
+				color: #ff4d6a;
+			}
+		}
+
+		&.apple-music-item {
+			.sidebar-icon {
+				color: #fa2d48;
+			}
 		}
 	}
 
@@ -1188,10 +1291,11 @@
 		width: 18px;
 		height: 18px;
 		flex-shrink: 0;
-		opacity: 0.7;
+		opacity: 0.65;
 
 		.active & {
 			opacity: 1;
+			color: #fa2d48;
 		}
 	}
 
@@ -1209,6 +1313,22 @@
 		}
 	}
 
+	/* ── View transitions ── */
+	.view-enter {
+		animation: view-fade-in 0.2s ease;
+	}
+
+	@keyframes view-fade-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
 	.content-header h1 {
 		font-size: 26px;
 		font-weight: 700;
@@ -1218,7 +1338,7 @@
 	.section-title {
 		font-size: 20px;
 		font-weight: 700;
-		margin: 20px 0 12px;
+		margin: 24px 0 12px;
 
 		&:first-child {
 			margin-top: 0;
@@ -1246,10 +1366,16 @@
 		cursor: pointer;
 		border-radius: 12px;
 		overflow: hidden;
-		transition: transform 0.15s;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 
 		&:hover {
 			transform: scale(1.02);
+			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+		}
+
+		&:active {
+			transform: scale(0.99);
 		}
 	}
 
@@ -1265,7 +1391,7 @@
 	.hero-overlay {
 		padding: 16px;
 		width: 100%;
-		background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
+		background: linear-gradient(transparent 0%, rgba(0, 0, 0, 0.55) 100%);
 		border-radius: 0 0 12px 12px;
 	}
 
@@ -1315,10 +1441,18 @@
 		cursor: pointer;
 		text-align: left;
 		flex-shrink: 0;
-		transition: transform 0.15s;
+		transition: transform 0.2s ease;
 
 		&:hover {
 			transform: scale(1.03);
+
+			.album-art {
+				box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+			}
+		}
+
+		&:active {
+			transform: scale(0.98);
 		}
 	}
 
@@ -1331,6 +1465,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition: box-shadow 0.2s ease;
 
 		.album-grid & {
 			width: 100%;
@@ -1343,6 +1478,7 @@
 		font-size: 36px;
 		font-weight: 800;
 		color: rgba(255, 255, 255, 0.85);
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 	}
 
 	.album-card-title {
@@ -1386,10 +1522,14 @@
 		cursor: pointer;
 		text-align: left;
 		flex-shrink: 0;
-		transition: transform 0.15s;
+		transition: transform 0.2s ease;
 
 		&:hover {
 			transform: scale(1.03);
+
+			.playlist-art {
+				box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+			}
 		}
 	}
 
@@ -1402,6 +1542,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition: box-shadow 0.2s ease;
 	}
 
 	.playlist-art-icon {
@@ -1432,10 +1573,14 @@
 		background: none;
 		cursor: pointer;
 		text-align: left;
-		transition: transform 0.15s;
+		transition: transform 0.2s ease;
 
 		&:hover {
 			transform: scale(1.03);
+
+			.playlist-art-large {
+				box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+			}
 		}
 	}
 
@@ -1448,6 +1593,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition: box-shadow 0.2s ease;
 	}
 
 	/* ── Radio ── */
@@ -1462,10 +1608,14 @@
 		background: none;
 		cursor: pointer;
 		text-align: left;
-		transition: transform 0.15s;
+		transition: transform 0.2s ease;
 
 		&:hover {
 			transform: scale(1.02);
+
+			.radio-art {
+				box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+			}
 		}
 	}
 
@@ -1478,6 +1628,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition: box-shadow 0.2s ease;
 	}
 
 	.radio-name {
@@ -1528,6 +1679,7 @@
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 
 		span {
 			font-size: 20px;
@@ -1570,7 +1722,7 @@
 		font-size: 13px;
 		font-weight: 500;
 		color: var(--system-color-light-contrast);
-		transition: background 0.1s;
+		transition: background 0.15s;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.08);
@@ -1622,10 +1774,10 @@
 	}
 
 	.album-detail-art {
-		width: 160px;
-		height: 160px;
+		width: 180px;
+		height: 180px;
 		border-radius: 10px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
@@ -1636,10 +1788,12 @@
 		font-size: 54px;
 		font-weight: 800;
 		color: rgba(255, 255, 255, 0.85);
+		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 	}
 
 	.album-detail-info {
 		min-width: 0;
+		padding-bottom: 4px;
 	}
 
 	.album-detail-title {
@@ -1677,10 +1831,14 @@
 		font-size: 13px;
 		font-weight: 600;
 		cursor: pointer;
-		transition: opacity 0.15s;
+		transition: opacity 0.15s, transform 0.1s;
 
 		&:hover {
 			opacity: 0.85;
+		}
+
+		&:active {
+			transform: scale(0.96);
 		}
 	}
 
@@ -1741,16 +1899,29 @@
 		color: var(--system-color-light-contrast);
 		text-align: left;
 		transition: background 0.1s;
+		border-bottom: 1px solid transparent;
 
-		&:hover {
-			background: rgba(0, 0, 0, 0.03);
+		&.odd {
+			background: rgba(0, 0, 0, 0.02);
 
 			:global(body.dark) & {
-				background: rgba(255, 255, 255, 0.04);
+				background: rgba(255, 255, 255, 0.02);
+			}
+		}
+
+		&:hover {
+			background: rgba(0, 0, 0, 0.05);
+
+			:global(body.dark) & {
+				background: rgba(255, 255, 255, 0.06);
 			}
 		}
 
 		&.playing {
+			color: #fa2d48;
+		}
+
+		&.playing .song-cell-title {
 			color: #fa2d48;
 		}
 	}
@@ -1759,6 +1930,18 @@
 		width: 30px;
 		text-align: center;
 		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 12px;
+		color: #86868b;
+
+		.playing & {
+			color: #fa2d48;
+		}
+	}
+
+	.paused-indicator {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1798,6 +1981,9 @@
 		text-align: right;
 		color: #86868b;
 		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
 	}
 
 	.song-info-cell {
@@ -1813,6 +1999,7 @@
 		height: 32px;
 		border-radius: 4px;
 		flex-shrink: 0;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
 	.song-cell-title {
@@ -1835,39 +2022,43 @@
 	.equalizer {
 		display: flex;
 		align-items: flex-end;
-		gap: 2px;
-		height: 14px;
+		gap: 1.5px;
+		height: 12px;
 	}
 
 	.eq-bar {
-		width: 3px;
+		width: 2.5px;
 		background: #fa2d48;
 		border-radius: 1px;
-		animation: eq-bounce 0.6s ease-in-out infinite alternate;
+		will-change: height;
 
 		&:nth-child(1) {
-			height: 6px;
-			animation-delay: 0s;
+			animation: eq-bounce-1 0.45s ease-in-out infinite alternate;
 		}
 
 		&:nth-child(2) {
-			height: 10px;
-			animation-delay: 0.2s;
+			animation: eq-bounce-2 0.55s ease-in-out infinite alternate;
 		}
 
 		&:nth-child(3) {
-			height: 4px;
-			animation-delay: 0.4s;
+			animation: eq-bounce-3 0.5s ease-in-out infinite alternate;
 		}
 	}
 
-	@keyframes eq-bounce {
-		0% {
-			height: 3px;
-		}
-		100% {
-			height: 14px;
-		}
+	@keyframes eq-bounce-1 {
+		0% { height: 3px; }
+		100% { height: 12px; }
+	}
+
+	@keyframes eq-bounce-2 {
+		0% { height: 8px; }
+		50% { height: 3px; }
+		100% { height: 10px; }
+	}
+
+	@keyframes eq-bounce-3 {
+		0% { height: 5px; }
+		100% { height: 12px; }
 	}
 
 	/* ── Queue Panel ── */
@@ -1877,14 +2068,16 @@
 		right: 0;
 		width: 260px;
 		height: 100%;
-		background: #f9f9f9;
+		background: rgba(249, 249, 249, 0.95);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
 		border-left: 1px solid #d1d1d6;
 		padding: 16px;
 		overflow-y: auto;
 		animation: slide-in-right 0.25s ease;
 
 		:global(body.dark) & {
-			background: #1c1c1e;
+			background: rgba(28, 28, 30, 0.95);
 			border-left-color: #38383a;
 		}
 	}
@@ -1952,10 +2145,11 @@
 	}
 
 	.queue-current {
-		background: rgba(250, 45, 72, 0.05);
+		background: rgba(250, 45, 72, 0.06);
 		border-radius: 6px;
 		padding: 8px 6px;
 		margin-bottom: 4px;
+		border-bottom: none;
 	}
 
 	.queue-item-art {
@@ -1963,6 +2157,7 @@
 		height: 36px;
 		border-radius: 4px;
 		flex-shrink: 0;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 
 	.queue-item-info {
@@ -2053,13 +2248,15 @@
 		gap: 12px;
 		padding: 8px 16px;
 		height: 64px;
-		background: #fafafa;
-		border-top: 1px solid #d1d1d6;
+		background: rgba(250, 250, 250, 0.9);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border-top: 1px solid rgba(0, 0, 0, 0.08);
 		flex-shrink: 0;
 
 		:global(body.dark) & {
-			background: #1c1c1e;
-			border-top-color: #38383a;
+			background: rgba(28, 28, 30, 0.9);
+			border-top-color: rgba(255, 255, 255, 0.08);
 		}
 	}
 
@@ -2067,7 +2264,7 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		width: 200px;
+		width: 220px;
 		flex-shrink: 0;
 		min-width: 0;
 	}
@@ -2080,11 +2277,12 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 	}
 
 	.np-art-empty {
 		background: rgba(0, 0, 0, 0.06);
+		box-shadow: none;
 
 		:global(body.dark) & {
 			background: rgba(255, 255, 255, 0.08);
@@ -2137,7 +2335,7 @@
 	.np-controls {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 12px;
 	}
 
 	.np-ctrl-btn {
@@ -2150,8 +2348,8 @@
 		align-items: center;
 		justify-content: center;
 		border-radius: 4px;
-		opacity: 0.55;
-		transition: opacity 0.15s;
+		opacity: 0.5;
+		transition: opacity 0.15s, color 0.15s;
 
 		&:hover {
 			opacity: 0.85;
@@ -2163,26 +2361,34 @@
 		}
 	}
 
+	.np-skip-btn {
+		opacity: 0.7;
+
+		&:hover {
+			opacity: 1;
+		}
+	}
+
 	.np-play-btn {
 		background: none;
 		border: none;
 		cursor: pointer;
 		color: var(--system-color-light-contrast);
-		padding: 6px;
+		padding: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		border-radius: 50%;
-		width: 32px;
-		height: 32px;
+		width: 36px;
+		height: 36px;
 		transition: transform 0.1s;
 
 		&:hover {
-			transform: scale(1.08);
+			transform: scale(1.1);
 		}
 
 		&:active {
-			transform: scale(0.95);
+			transform: scale(0.92);
 		}
 	}
 
@@ -2209,16 +2415,19 @@
 		border-radius: 2px;
 		cursor: pointer;
 		position: relative;
+		transition: height 0.15s ease;
 
 		:global(body.dark) & {
 			background: rgba(255, 255, 255, 0.12);
 		}
 
-		&:hover {
+		&:hover,
+		&.dragging {
 			height: 6px;
 
 			.progress-thumb {
 				opacity: 1;
+				transform: translateY(-50%) scale(1);
 			}
 		}
 	}
@@ -2228,21 +2437,21 @@
 		background: #fa2d48;
 		border-radius: 2px;
 		position: relative;
-		transition: width 0.1s linear;
+		/* No transition on width to avoid jitter during drag and playback */
 	}
 
 	.progress-thumb {
 		position: absolute;
 		right: -5px;
 		top: 50%;
-		transform: translateY(-50%);
-		width: 10px;
-		height: 10px;
+		transform: translateY(-50%) scale(0.5);
+		width: 12px;
+		height: 12px;
 		border-radius: 50%;
 		background: #fa2d48;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 		opacity: 0;
-		transition: opacity 0.15s;
+		transition: opacity 0.15s, transform 0.15s;
 	}
 
 	/* ── Volume ── */
@@ -2261,13 +2470,19 @@
 		gap: 6px;
 	}
 
+	.volume-icon {
+		opacity: 0.5;
+		flex-shrink: 0;
+	}
+
 	.volume-track {
 		width: 80px;
 		height: 4px;
 		background: rgba(0, 0, 0, 0.1);
 		border-radius: 2px;
 		cursor: pointer;
-		overflow: hidden;
+		position: relative;
+		transition: height 0.15s ease;
 
 		:global(body.dark) & {
 			background: rgba(255, 255, 255, 0.12);
@@ -2275,6 +2490,11 @@
 
 		&:hover {
 			height: 6px;
+
+			.volume-thumb {
+				opacity: 1;
+				transform: translateY(-50%) scale(1);
+			}
 		}
 	}
 
@@ -2283,5 +2503,20 @@
 		background: var(--system-color-light-contrast);
 		border-radius: 2px;
 		opacity: 0.4;
+		position: relative;
+	}
+
+	.volume-thumb {
+		position: absolute;
+		right: -4px;
+		top: 50%;
+		transform: translateY(-50%) scale(0.5);
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: var(--system-color-light-contrast);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+		opacity: 0;
+		transition: opacity 0.15s, transform 0.15s;
 	}
 </style>

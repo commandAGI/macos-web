@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { create_default_fs, display_path, resolve_path, type FSNode } from './virtual-fs';
+	import { create_default_fs, display_path, type FSNode } from './virtual-fs';
 	import { COMMANDS, get_completions, parse_command_line, type TerminalState, type CommandResult } from './commands';
 
 	// --- Types ---
@@ -30,7 +30,7 @@
 		cyan: '#56d4dd',
 		magenta: '#c678dd',
 		yellow: '#e5c07b',
-		white: '#e6e6e6',
+		white: '#f2f2f2',
 		gray: '#808080',
 		dim: '#808080',
 		bold: '#ffffff',
@@ -52,7 +52,7 @@
 					? 'color: #ffffff; font-weight: bold;'
 					: color === 'dim'
 						? 'color: #808080;'
-						: `color: ${COLOR_MAP[color] || '#e6e6e6'};`;
+						: `color: ${COLOR_MAP[color] || '#f2f2f2'};`;
 				return `<span style="${style}">${content}</span>`;
 			}
 		);
@@ -62,8 +62,7 @@
 
 	function render_prompt(cwd: string): string {
 		const dir_display = display_path(cwd);
-		const short_dir = dir_display === '/Users/user' ? '~' : dir_display;
-		return `<span style="color: #27c93f; font-weight: bold;">user@macbook</span> <span style="color: #58a6ff; font-weight: bold;">${short_dir}</span> <span style="color: #e6e6e6;">%</span> `;
+		return `<span style="color: #27c93f; font-weight: bold;">user@macbook</span> <span style="color: #58a6ff; font-weight: bold;">${dir_display}</span> <span style="color: #f2f2f2;">%</span> `;
 	}
 
 	// --- Tab management ---
@@ -124,9 +123,10 @@
 	let current_input = $state('');
 	let input_el = $state<HTMLInputElement>();
 	let terminal_el = $state<HTMLDivElement>();
-	let cursor_position = $state(0);
+	let char_measure_el = $state<HTMLSpanElement>();
 	let tab_completions = $state<string[]>([]);
 	let tab_completion_index = $state(-1);
+	let char_width = $state(7.8);
 
 	function get_state(): TerminalState {
 		return {
@@ -169,15 +169,22 @@
 			return;
 		}
 
-		// Handle piped commands (very basic - just run last)
-		const pipe_parts = cmd_text.split('|').map(s => s.trim());
-
 		// Handle chained commands with && or ;
 		const chain_parts = cmd_text.split(/\s*(?:&&|;)\s*/);
 		if (chain_parts.length > 1) {
 			for (const part of chain_parts) {
 				execute_single(part.trim(), tab);
 			}
+			current_input = '';
+			scroll_to_bottom();
+			return;
+		}
+
+		// Handle piped commands (basic - run each, pass last output)
+		const pipe_parts = cmd_text.split('|').map(s => s.trim());
+		if (pipe_parts.length > 1) {
+			// For simplicity, just execute the last command in the pipe
+			execute_single(pipe_parts[pipe_parts.length - 1], tab);
 			current_input = '';
 			scroll_to_bottom();
 			return;
@@ -265,6 +272,10 @@
 				'  |/ |   |-----------I_____I [][] []  D   |=======|_',
 				'',
 			]);
+		} else if (cmd === 'true') {
+			// Do nothing, exit 0
+		} else if (cmd === 'false') {
+			// Do nothing, exit 1
 		} else {
 			add_lines(tab, [`zsh: command not found: ${cmd}`]);
 		}
@@ -284,6 +295,43 @@
 
 	function handle_keydown(e: KeyboardEvent) {
 		const tab = active_tab;
+
+		// Cmd+C: copy selected text (if selection exists), otherwise Ctrl+C interrupt
+		if (e.key === 'c' && e.metaKey) {
+			const sel = window.getSelection();
+			if (sel && sel.toString().length > 0) {
+				// Let the browser handle native copy
+				return;
+			}
+		}
+
+		// Cmd+V: paste from clipboard
+		if (e.key === 'v' && e.metaKey) {
+			// Let the browser handle native paste into the input
+			return;
+		}
+
+		// Cmd+A: select all terminal text
+		if (e.key === 'a' && e.metaKey) {
+			e.preventDefault();
+			if (terminal_el) {
+				const range = document.createRange();
+				range.selectNodeContents(terminal_el);
+				const sel = window.getSelection();
+				if (sel) {
+					sel.removeAllRanges();
+					sel.addRange(range);
+				}
+			}
+			return;
+		}
+
+		// Cmd+K: clear screen (macOS Terminal shortcut)
+		if (e.key === 'k' && e.metaKey) {
+			e.preventDefault();
+			tab.lines = [];
+			return;
+		}
 
 		// Tab completion
 		if (e.key === 'Tab') {
@@ -346,7 +394,7 @@
 			return;
 		}
 
-		// Ctrl+C
+		// Ctrl+C (interrupt)
 		if (e.key === 'c' && e.ctrlKey) {
 			e.preventDefault();
 			const prompt_html = render_prompt(tab.cwd);
@@ -402,10 +450,19 @@
 			return;
 		}
 
-		// Ctrl+T (new tab)
-		if (e.key === 't' && (e.ctrlKey || e.metaKey)) {
-			// Only intercept if it seems intentional for terminal
-			// Cmd+T might be browser new tab, so only do Ctrl+Shift+T
+		// Ctrl+D (EOF / close if empty)
+		if (e.key === 'd' && e.ctrlKey) {
+			e.preventDefault();
+			if (current_input === '') {
+				if (tabs.length > 1) {
+					close_tab(tab.id);
+				} else {
+					tab.lines = [...tab.lines, { id: tab.line_counter++, html: render_prompt(tab.cwd) + 'exit' }];
+					tab.lines = [...tab.lines, { id: tab.line_counter++, html: '' }];
+					tab.lines = [...tab.lines, { id: tab.line_counter++, html: render_colors('<c:dim>[Process completed]</c>') }];
+				}
+			}
+			return;
 		}
 	}
 
@@ -490,21 +547,33 @@
 		});
 	}
 
-	// Track cursor for the block cursor
-	function handle_input_change() {
-		cursor_position = input_el?.selectionStart ?? current_input.length;
+	function measure_char_width() {
+		if (char_measure_el) {
+			const w = char_measure_el.getBoundingClientRect().width;
+			if (w > 0) char_width = w;
+		}
 	}
 
-	// Title bar text
-	let title_text = $derived(() => {
-		const tab = active_tab;
-		const dir_display = display_path(tab.cwd);
-		const short_dir = dir_display === '/Users/user' ? '~' : dir_display;
-		return `user@macbook: ${short_dir} - zsh - 80x24`;
+	function handle_input_change() {
+		// noop - cursor position is read directly from input_el in template
+	}
+
+	function handle_terminal_mouseup() {
+		// If user selected text, don't steal focus to input
+		const sel = window.getSelection();
+		if (sel && sel.toString().length > 0) return;
+		focus_input();
+	}
+
+	// Title bar text (matches real macOS Terminal title format)
+	let title_text = $derived.by(() => {
+		const dir_display = display_path(active_tab.cwd);
+		return `${dir_display} \u2014 -zsh \u2014 80\u00d724`;
 	});
 
 	onMount(() => {
 		focus_input();
+		measure_char_width();
 	});
 
 	// Auto-scroll when lines change
@@ -517,7 +586,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<section class="container" onclick={focus_input}>
+<section class="container" onmouseup={handle_terminal_mouseup}>
 	<!-- Tab bar (only show if multiple tabs) -->
 	{#if tabs.length > 1}
 		<div class="tab-bar">
@@ -546,7 +615,7 @@
 	{/if}
 
 	<header class="app-window-drag-handle titlebar">
-		<span class="title-text">{title_text()}</span>
+		<span class="title-text">{title_text}</span>
 		{#if tabs.length <= 1}
 			<button class="new-tab-btn" onclick={(e) => { e.stopPropagation(); add_tab(); }} title="New Tab">
 				+
@@ -555,6 +624,9 @@
 	</header>
 
 	<div class="terminal" bind:this={terminal_el}>
+		<!-- Hidden element to measure monospace character width -->
+		<span class="char-measure" bind:this={char_measure_el} aria-hidden="true">M</span>
+
 		{#each active_tab.lines as line (line.id)}
 			<div class="line">{@html line.html || '&nbsp;'}</div>
 		{/each}
@@ -574,7 +646,7 @@
 				/>
 				<span
 					class="cursor-block"
-					style:left="{(input_el?.selectionStart ?? current_input.length) * 7.8}px"
+					style:left="{(input_el?.selectionStart ?? current_input.length) * char_width}px"
 				></span>
 			</div>
 		</div>
@@ -591,9 +663,11 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+		font-family: 'Menlo', 'SF Mono', 'Monaco', 'Courier New', monospace;
 		font-size: 13px;
-		line-height: 1.4;
+		line-height: 1.35;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
 	}
 
 	/* Tab bar */
@@ -722,10 +796,20 @@
 	/* Terminal area */
 	.terminal {
 		flex: 1;
-		padding: 8px 12px;
+		padding: 10px 10px;
 		overflow-y: auto;
 		overflow-x: hidden;
-		color: #cccccc;
+		color: #f2f2f2;
+		position: relative;
+		cursor: text;
+		user-select: text;
+		-webkit-user-select: text;
+	}
+
+	.terminal::selection,
+	.terminal :global(::selection) {
+		background: rgba(65, 131, 196, 0.45);
+		color: inherit;
 	}
 
 	.terminal::-webkit-scrollbar {
@@ -745,17 +829,27 @@
 		background: rgba(255, 255, 255, 0.25);
 	}
 
+	.char-measure {
+		position: absolute;
+		visibility: hidden;
+		white-space: pre;
+		font-family: inherit;
+		font-size: inherit;
+		line-height: inherit;
+		pointer-events: none;
+	}
+
 	.line {
 		white-space: pre-wrap;
 		word-break: break-all;
-		line-height: 1.4;
-		min-height: 1.4em;
+		line-height: 1.35;
+		min-height: 1.35em;
 	}
 
 	.input-line {
 		display: flex;
 		align-items: center;
-		line-height: 1.4;
+		line-height: 1.35;
 	}
 
 	.prompt {
@@ -774,13 +868,13 @@
 		flex: 1;
 		background: none;
 		border: none;
-		color: #cccccc;
+		color: #f2f2f2;
 		font-family: inherit;
 		font-size: inherit;
 		padding: 0;
 		outline: none;
 		caret-color: transparent;
-		line-height: 1.4;
+		line-height: 1.35;
 	}
 
 	.cursor-block {

@@ -19,6 +19,7 @@
 		history: string[];
 		history_index: number;
 		error: string | null;
+		favicon_color: string;
 	};
 
 	type Favorite = {
@@ -32,6 +33,7 @@
 		title: string;
 		url: string;
 		icon: string;
+		color: string;
 	};
 
 	type BookmarkFolder = {
@@ -43,7 +45,7 @@
 	const favorites: Favorite[] = [
 		{ name: 'Apple', url: 'https://www.apple.com', icon: '', color: '#555555' },
 		{ name: 'Google', url: 'https://www.google.com', icon: 'G', color: '#4285F4' },
-		{ name: 'YouTube', url: 'https://www.youtube.com', icon: '>', color: '#FF0000' },
+		{ name: 'YouTube', url: 'https://www.youtube.com', icon: '\u25B6', color: '#FF0000' },
 		{ name: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'W', color: '#636466' },
 		{ name: 'GitHub', url: 'https://github.com', icon: '', color: '#24292e' },
 		{ name: 'Reddit', url: 'https://www.reddit.com', icon: 'r/', color: '#FF4500' },
@@ -68,30 +70,82 @@
 		{
 			name: 'Favorites',
 			items: [
-				{ title: 'Apple', url: 'https://www.apple.com', icon: '' },
-				{ title: 'Google', url: 'https://www.google.com', icon: 'G' },
-				{ title: 'YouTube', url: 'https://www.youtube.com', icon: '>' },
-				{ title: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'W' },
-				{ title: 'GitHub', url: 'https://github.com', icon: '' },
-				{ title: 'Reddit', url: 'https://www.reddit.com', icon: 'r/' },
+				{ title: 'Apple', url: 'https://www.apple.com', icon: '', color: '#555555' },
+				{ title: 'Google', url: 'https://www.google.com', icon: 'G', color: '#4285F4' },
+				{ title: 'YouTube', url: 'https://www.youtube.com', icon: '\u25B6', color: '#FF0000' },
+				{ title: 'Wikipedia', url: 'https://www.wikipedia.org', icon: 'W', color: '#636466' },
+				{ title: 'GitHub', url: 'https://github.com', icon: '', color: '#24292e' },
+				{ title: 'Reddit', url: 'https://www.reddit.com', icon: 'r/', color: '#FF4500' },
 			],
 		},
 		{
 			name: 'Reading List',
 			items: [
-				{ title: 'Svelte 5 Runes Guide', url: 'https://svelte.dev/docs', icon: 'S' },
-				{ title: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs', icon: 'TS' },
+				{ title: 'Svelte 5 Runes Guide', url: 'https://svelte.dev/docs', icon: 'S', color: '#FF3E00' },
+				{ title: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs', icon: 'TS', color: '#3178C6' },
 			],
 		},
 		{
 			name: 'Work',
 			items: [
-				{ title: 'Linear', url: 'https://linear.app', icon: 'L' },
-				{ title: 'Slack', url: 'https://slack.com', icon: 'S' },
-				{ title: 'Vercel Dashboard', url: 'https://vercel.com/dashboard', icon: 'V' },
+				{ title: 'Linear', url: 'https://linear.app', icon: 'L', color: '#5E6AD2' },
+				{ title: 'Slack', url: 'https://slack.com', icon: 'S', color: '#4A154B' },
+				{ title: 'Vercel Dashboard', url: 'https://vercel.com/dashboard', icon: 'V', color: '#000000' },
 			],
 		},
 	];
+
+	// Well-known favicon colors for domains
+	const domain_colors: Record<string, string> = {
+		'apple.com': '#555555',
+		'google.com': '#4285F4',
+		'youtube.com': '#FF0000',
+		'wikipedia.org': '#636466',
+		'github.com': '#24292e',
+		'reddit.com': '#FF4500',
+		'twitter.com': '#1DA1F2',
+		'x.com': '#000000',
+		'amazon.com': '#FF9900',
+		'netflix.com': '#E50914',
+		'linkedin.com': '#0077B5',
+		'stackoverflow.com': '#F48024',
+		'developer.mozilla.org': '#1B1B1B',
+		'figma.com': '#A259FF',
+		'notion.so': '#000000',
+		'vercel.com': '#000000',
+		'linear.app': '#5E6AD2',
+		'slack.com': '#4A154B',
+		'svelte.dev': '#FF3E00',
+		'typescriptlang.org': '#3178C6',
+		'facebook.com': '#1877F2',
+		'instagram.com': '#E4405F',
+		'tiktok.com': '#000000',
+		'microsoft.com': '#00A4EF',
+		'docs.google.com': '#4285F4',
+		'news.ycombinator.com': '#FF6600',
+	};
+
+	function get_favicon_color(url: string): string {
+		try {
+			const hostname = new URL(url).hostname.replace('www.', '');
+			if (domain_colors[hostname]) return domain_colors[hostname];
+			// Check parent domain
+			const parts = hostname.split('.');
+			if (parts.length > 2) {
+				const parent = parts.slice(-2).join('.');
+				if (domain_colors[parent]) return domain_colors[parent];
+			}
+			// Generate a consistent color from hostname
+			let hash = 0;
+			for (let i = 0; i < hostname.length; i++) {
+				hash = hostname.charCodeAt(i) + ((hash << 5) - hash);
+			}
+			const hue = Math.abs(hash) % 360;
+			return `hsl(${hue}, 55%, 50%)`;
+		} catch {
+			return '#86868b';
+		}
+	}
 
 	// --- State ---
 	let next_tab_id = $state(1);
@@ -103,11 +157,25 @@
 	let url_input_value = $state('');
 	let hovered_tab_id = $state<number | null>(null);
 	let reader_mode_active = $state(false);
+	let status_bar_url = $state('');
+	let url_input_el: HTMLInputElement | undefined = $state(undefined);
+	let loading_timers: Map<number, { intervals: number[]; timeouts: number[] }> = new Map();
 
 	// --- Derived ---
 	const active_tab = $derived(tabs.find((t) => t.id === active_tab_id) ?? tabs[0]);
 	const can_go_back = $derived(active_tab?.can_go_back ?? false);
 	const can_go_forward = $derived(active_tab?.can_go_forward ?? false);
+
+	// --- Cleanup timers on unmount ---
+	$effect(() => {
+		return () => {
+			for (const [, timers] of loading_timers) {
+				timers.intervals.forEach(clearInterval);
+				timers.timeouts.forEach(clearTimeout);
+			}
+			loading_timers.clear();
+		};
+	});
 
 	// --- Tab management ---
 	function create_tab(url?: string): Tab {
@@ -126,6 +194,7 @@
 			history: url ? [url] : [],
 			history_index: url ? 0 : -1,
 			error: null,
+			favicon_color: url ? get_favicon_color(url) : '#86868b',
 		};
 	}
 
@@ -159,8 +228,10 @@
 		if (event) {
 			event.stopPropagation();
 		}
+		// Clean up loading timers for this tab
+		cleanup_tab_timers(id);
+
 		if (tabs.length <= 1) {
-			// Replace with start page instead of closing last tab
 			const new_tab = create_tab();
 			tabs = [new_tab];
 			active_tab_id = new_tab.id;
@@ -169,6 +240,7 @@
 		const index = tabs.findIndex((t) => t.id === id);
 		tabs = tabs.filter((t) => t.id !== id);
 		if (active_tab_id === id) {
+			// Prefer the tab to the right, fall back to the one on the left
 			const new_index = Math.min(index, tabs.length - 1);
 			active_tab_id = tabs[new_index].id;
 		}
@@ -189,7 +261,6 @@
 		if (!raw.trim()) return;
 
 		let target = raw.trim();
-		// Detect if it looks like a URL or a search query
 		if (!target.includes('.') && !target.startsWith('http')) {
 			target = `https://www.google.com/search?q=${encodeURIComponent(target)}`;
 		} else if (!target.startsWith('http://') && !target.startsWith('https://')) {
@@ -200,7 +271,6 @@
 		if (tab_index === -1) return;
 
 		const tab = tabs[tab_index];
-		// Truncate forward history
 		const new_history = tab.history.slice(0, tab.history_index + 1);
 		new_history.push(target);
 
@@ -217,6 +287,7 @@
 			can_go_back: new_history.length > 1,
 			can_go_forward: false,
 			error: null,
+			favicon_color: get_favicon_color(target),
 		};
 
 		url_input_value = extract_display_url(target);
@@ -225,28 +296,69 @@
 		simulate_loading(tab_index);
 	}
 
+	function cleanup_tab_timers(tab_id: number) {
+		const tab_index = tabs.findIndex((t) => t.id === tab_id);
+		if (tab_index !== -1) {
+			const timers = loading_timers.get(tab_index);
+			if (timers) {
+				timers.intervals.forEach(clearInterval);
+				timers.timeouts.forEach(clearTimeout);
+				loading_timers.delete(tab_index);
+			}
+		}
+	}
+
 	function simulate_loading(tab_index: number) {
+		// Clean up any existing timers for this tab index
+		const existing = loading_timers.get(tab_index);
+		if (existing) {
+			existing.intervals.forEach(clearInterval);
+			existing.timeouts.forEach(clearTimeout);
+		}
+
+		const timers = { intervals: [] as number[], timeouts: [] as number[] };
+		loading_timers.set(tab_index, timers);
+
 		let progress = 0;
+		let step = 0;
+
 		const interval = setInterval(() => {
-			progress += Math.random() * 30 + 10;
-			if (progress >= 100) {
+			step++;
+			// Realistic loading curve: fast start, slow middle, quick finish
+			if (progress < 20) {
+				// Fast initial burst (DNS + connection)
+				progress += Math.random() * 15 + 10;
+			} else if (progress < 60) {
+				// Slow middle (downloading resources)
+				progress += Math.random() * 8 + 2;
+			} else if (progress < 85) {
+				// Slower (rendering)
+				progress += Math.random() * 5 + 1;
+			} else {
+				// Quick finish
+				progress += Math.random() * 10 + 5;
+			}
+
+			if (progress >= 100 || step > 30) {
 				progress = 100;
 				clearInterval(interval);
 				if (tabs[tab_index]) {
 					tabs[tab_index] = { ...tabs[tab_index], loading: false, load_progress: 100 };
 				}
-				// Reset progress after a moment
-				setTimeout(() => {
+				const timeout = setTimeout(() => {
 					if (tabs[tab_index]) {
 						tabs[tab_index] = { ...tabs[tab_index], load_progress: 0 };
 					}
-				}, 300);
+					loading_timers.delete(tab_index);
+				}, 400);
+				timers.timeouts.push(timeout as unknown as number);
 			} else {
 				if (tabs[tab_index]) {
 					tabs[tab_index] = { ...tabs[tab_index], load_progress: progress };
 				}
 			}
-		}, 200);
+		}, 150) as unknown as number;
+		timers.intervals.push(interval);
 	}
 
 	function go_back() {
@@ -270,6 +382,7 @@
 			can_go_back: new_index > 0,
 			can_go_forward: true,
 			error: null,
+			favicon_color: get_favicon_color(prev_url),
 		};
 		url_input_value = extract_display_url(prev_url);
 		reader_mode_active = false;
@@ -297,6 +410,7 @@
 			can_go_back: true,
 			can_go_forward: new_index < tab.history.length - 1,
 			error: null,
+			favicon_color: get_favicon_color(next_url),
 		};
 		url_input_value = extract_display_url(next_url);
 		reader_mode_active = false;
@@ -337,6 +451,7 @@
 			can_go_back: new_history.length > 1,
 			can_go_forward: false,
 			error: null,
+			favicon_color: get_favicon_color(url),
 		};
 
 		url_input_value = extract_display_url(url);
@@ -347,6 +462,10 @@
 	function handle_url_focus() {
 		url_input_focused = true;
 		url_input_value = active_tab?.is_start_page ? '' : (active_tab?.url ?? '');
+		// Select all text on focus, like real Safari
+		requestAnimationFrame(() => {
+			url_input_el?.select();
+		});
 	}
 
 	function handle_url_blur() {
@@ -382,173 +501,228 @@
 		navigate(url);
 		show_sidebar = false;
 	}
+
+	function show_status_url(url: string) {
+		try {
+			const u = new URL(url);
+			status_bar_url = u.hostname.replace('www.', '') + (u.pathname !== '/' ? u.pathname : '');
+		} catch {
+			status_bar_url = url;
+		}
+	}
+
+	function hide_status_url() {
+		status_bar_url = '';
+	}
 </script>
 
 <section class="container" class:private={is_private_browsing}>
-	<!-- Tab Bar -->
-	<header class="app-window-drag-handle tab-bar-area">
-		<div class="tab-strip">
-			{#each tabs as tab (tab.id)}
-				<button
-					class="tab"
-					class:active={active_tab_id === tab.id}
-					onclick={() => select_tab(tab.id)}
-					onmouseenter={() => hovered_tab_id = tab.id}
-					onmouseleave={() => hovered_tab_id = null}
-				>
-					{#if tab.loading}
-						<span class="tab-spinner"></span>
-					{:else}
-						<span class="tab-favicon">
-							{#if tab.is_start_page}
-								<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-									<path d="M8 1L1 6v8.5A1.5 1.5 0 002.5 16h3a.5.5 0 00.5-.5V10h4v5.5a.5.5 0 00.5.5h3a1.5 1.5 0 001.5-1.5V6L8 1z"/>
+	<!-- Unified toolbar area (tab bar + nav bar) -->
+	<div class="toolbar-area" class:private-toolbar={is_private_browsing}>
+		<!-- Tab Bar -->
+		<header class="app-window-drag-handle tab-bar">
+			<div class="tab-strip">
+				{#each tabs as tab (tab.id)}
+					<button
+						class="tab"
+						class:active={active_tab_id === tab.id}
+						onmouseenter={() => hovered_tab_id = tab.id}
+						onmouseleave={() => hovered_tab_id = null}
+						onclick={() => select_tab(tab.id)}
+						style="max-width: {Math.max(60, Math.min(240, 600 / tabs.length))}px"
+					>
+						{#if tab.loading}
+							<span class="tab-spinner"></span>
+						{:else}
+							<span class="tab-favicon-circle" style="background-color: {tab.is_start_page ? 'transparent' : tab.favicon_color}">
+								{#if tab.is_start_page}
+									<svg width="12" height="12" viewBox="0 0 16 16" fill="#86868b">
+										<path d="M8 1L1 6v8.5A1.5 1.5 0 002.5 16h3a.5.5 0 00.5-.5V10h4v5.5a.5.5 0 00.5.5h3a1.5 1.5 0 001.5-1.5V6L8 1z"/>
+									</svg>
+								{:else if tab.url.includes('apple.com') && tab.favicon_color === '#555555'}
+									<svg width="10" height="10" viewBox="0 0 20 20" fill="white">
+										<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.5) translate(5, 5)"/>
+									</svg>
+								{:else if tab.url.includes('github.com')}
+									<svg width="10" height="10" viewBox="0 0 16 16" fill="white">
+										<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+									</svg>
+								{:else}
+									<span class="tab-favicon-letter">{tab.title.charAt(0).toUpperCase()}</span>
+								{/if}
+							</span>
+						{/if}
+						<span class="tab-title">{tab.title}</span>
+						{#if tabs.length > 1 && (hovered_tab_id === tab.id || active_tab_id === tab.id)}
+							<!-- svelte-ignore node_invalid_placement_ssr -->
+							<span
+								class="tab-close"
+								role="button"
+								tabindex="-1"
+								onclick={(e) => close_tab(tab.id, e)}
+								onkeydown={(e) => { if (e.key === 'Enter') close_tab(tab.id); }}
+								aria-label="Close tab"
+							>
+								<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+									<path d="M1.172 1.172a.5.5 0 01.707 0L4 3.293l2.121-2.121a.5.5 0 11.707.707L4.707 4l2.121 2.121a.5.5 0 01-.707.707L4 4.707 1.879 6.828a.5.5 0 01-.707-.707L3.293 4 1.172 1.879a.5.5 0 010-.707z"/>
 								</svg>
-							{:else}
-								<span class="tab-favicon-letter">{tab.title.charAt(0)}</span>
-							{/if}
-						</span>
+							</span>
+						{/if}
+					</button>
+				{/each}
+				<button class="tab-add" onclick={() => add_tab()} aria-label="New tab">
+					<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+						<path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+					</svg>
+				</button>
+			</div>
+		</header>
+
+		<!-- Navigation Bar -->
+		<div class="nav-bar">
+			<div class="nav-left">
+				<button
+					class="nav-btn"
+					class:active-toggle={show_sidebar}
+					onclick={toggle_sidebar}
+					aria-label="Toggle sidebar"
+				>
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.7">
+						<rect x="1" y="2" width="14" height="12" rx="2"/>
+						<line x1="5.5" y1="2" x2="5.5" y2="14"/>
+					</svg>
+				</button>
+
+				<button
+					class="nav-btn nav-arrow"
+					class:disabled={!can_go_back}
+					onclick={go_back}
+					disabled={!can_go_back}
+					aria-label="Go back"
+				>
+					<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+						<path d="M7.5 1.5L3 6l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+				<button
+					class="nav-btn nav-arrow"
+					class:disabled={!can_go_forward}
+					onclick={go_forward}
+					disabled={!can_go_forward}
+					aria-label="Go forward"
+				>
+					<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+						<path d="M4.5 1.5L9 6l-4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+			</div>
+
+			<!-- URL Bar -->
+			<div class="url-bar-wrapper">
+				<div class="url-bar" class:focused={url_input_focused} class:loading={active_tab?.loading}>
+					{#if active_tab?.loading}
+						<div class="url-bar-progress" style="width: {active_tab.load_progress}%"></div>
 					{/if}
-					<span class="tab-title">{tab.title}</span>
-					{#if tabs.length > 1 && (hovered_tab_id === tab.id || active_tab_id === tab.id)}
-						<!-- svelte-ignore node_invalid_placement_ssr -->
-						<span
-							class="tab-close"
-							role="button"
-							tabindex="-1"
-							onclick={(e) => close_tab(tab.id, e)}
-							onkeydown={(e) => { if (e.key === 'Enter') close_tab(tab.id); }}
-							aria-label="Close tab"
-						>
-							<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-								<path d="M1.172 1.172a.5.5 0 01.707 0L4 3.293l2.121-2.121a.5.5 0 11.707.707L4.707 4l2.121 2.121a.5.5 0 01-.707.707L4 4.707 1.879 6.828a.5.5 0 01-.707-.707L3.293 4 1.172 1.879a.5.5 0 010-.707z"/>
+					{#if !url_input_focused && !active_tab?.is_start_page}
+						<span class="url-lock">
+							<svg width="10" height="10" viewBox="0 0 10 10" fill="#86868b">
+								<path d="M3 4V3a2 2 0 114 0v1h.5A1.5 1.5 0 019 5.5v3A1.5 1.5 0 017.5 10h-5A1.5 1.5 0 011 8.5v-3A1.5 1.5 0 012.5 4H3zm1-1a1 1 0 112 0v1H4V3z"/>
 							</svg>
 						</span>
 					{/if}
+					<input
+						type="text"
+						bind:this={url_input_el}
+						bind:value={url_input_value}
+						onfocus={handle_url_focus}
+						onblur={handle_url_blur}
+						onkeydown={handle_url_keydown}
+						placeholder="Search or enter website name"
+						class:centered={!url_input_focused}
+						spellcheck="false"
+						autocomplete="off"
+					/>
+					{#if !url_input_focused && active_tab && !active_tab.is_start_page}
+						<button
+							class="url-action-btn"
+							class:active-reader={reader_mode_active}
+							onclick={toggle_reader_mode}
+							aria-label="Toggle reader mode"
+						>
+							<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.5">
+								<path d="M2 3h12v1H2zm0 3h12v1H2zm0 3h8v1H2zm0 3h10v1H2z"/>
+							</svg>
+						</button>
+					{/if}
+					{#if active_tab?.loading}
+						<button
+							class="url-action-btn"
+							onclick={() => {
+								const tab_index = tabs.findIndex((t) => t.id === active_tab_id);
+								if (tab_index !== -1) {
+									const existing = loading_timers.get(tab_index);
+									if (existing) {
+										existing.intervals.forEach(clearInterval);
+										existing.timeouts.forEach(clearTimeout);
+										loading_timers.delete(tab_index);
+									}
+									tabs[tab_index] = { ...tabs[tab_index], loading: false, load_progress: 0 };
+								}
+							}}
+							aria-label="Stop loading"
+						>
+							<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.5">
+								<path d="M2 2l6 6M8 2l-6 6"/>
+							</svg>
+						</button>
+					{:else if !url_input_focused && active_tab && !active_tab.is_start_page}
+						<button
+							class="url-action-btn"
+							onclick={refresh}
+							aria-label="Reload page"
+						>
+							<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.5">
+								<path d="M13.5 8a5.5 5.5 0 11-1.1-3.3"/>
+								<path d="M13.5 2.5v3h-3"/>
+							</svg>
+						</button>
+					{/if}
+				</div>
+			</div>
+
+			<div class="nav-right">
+				<button class="nav-btn" aria-label="Share">
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7">
+						<path d="M8 1v8M5 4l3-3 3 3"/>
+						<path d="M3 8v5a2 2 0 002 2h6a2 2 0 002-2V8"/>
+					</svg>
 				</button>
-			{/each}
-			<button class="tab-add" onclick={() => add_tab()} aria-label="New tab">
-				<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-					<path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
-				</svg>
-			</button>
-		</div>
-	</header>
 
-	<!-- Navigation Bar -->
-	<div class="nav-bar">
-		<div class="nav-left">
-			<!-- Sidebar toggle -->
-			<button
-				class="nav-btn"
-				class:active-toggle={show_sidebar}
-				onclick={toggle_sidebar}
-				aria-label="Toggle sidebar"
-			>
-				<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" opacity="0.7">
-					<rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
-					<line x1="5.5" y1="2" x2="5.5" y2="14" stroke="currentColor" stroke-width="1.2"/>
-				</svg>
-			</button>
+				<button class="nav-btn" aria-label="Add bookmark">
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.7">
+						<path d="M8 2l1.796 3.64L14 6.236l-3 2.924.708 4.13L8 11.236 4.292 13.29 5 9.16 2 6.236l4.204-.596z" stroke-linejoin="round"/>
+					</svg>
+				</button>
 
-			<!-- Back / Forward -->
-			<button
-				class="nav-btn nav-arrow"
-				class:disabled={!can_go_back}
-				onclick={go_back}
-				disabled={!can_go_back}
-				aria-label="Go back"
-			>
-				<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-					<path d="M7.5 1.5L3 6l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			</button>
-			<button
-				class="nav-btn nav-arrow"
-				class:disabled={!can_go_forward}
-				onclick={go_forward}
-				disabled={!can_go_forward}
-				aria-label="Go forward"
-			>
-				<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-					<path d="M4.5 1.5L9 6l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			</button>
-		</div>
-
-		<!-- URL Bar -->
-		<div class="url-bar-wrapper">
-			<div class="url-bar" class:focused={url_input_focused} class:loading={active_tab?.loading}>
-				{#if active_tab?.loading}
-					<div class="url-bar-progress" style="width: {active_tab.load_progress}%"></div>
-				{/if}
-				{#if !url_input_focused && !active_tab?.is_start_page}
-					<span class="url-lock">
-						<svg width="10" height="10" viewBox="0 0 10 10" fill="#86868b">
-							<path d="M3 4V3a2 2 0 114 0v1h.5A1.5 1.5 0 019 5.5v3A1.5 1.5 0 017.5 10h-5A1.5 1.5 0 011 8.5v-3A1.5 1.5 0 012.5 4H3zm1-1a1 1 0 112 0v1H4V3z"/>
-						</svg>
-					</span>
-				{/if}
-				<input
-					type="text"
-					bind:value={url_input_value}
-					onfocus={handle_url_focus}
-					onblur={handle_url_blur}
-					onkeydown={handle_url_keydown}
-					placeholder="Search or enter website name"
-					class:centered={!url_input_focused}
-					spellcheck="false"
-				/>
-				{#if !url_input_focused && active_tab && !active_tab.is_start_page}
-					<button
-						class="url-reader-btn"
-						class:active-reader={reader_mode_active}
-						onclick={toggle_reader_mode}
-						aria-label="Toggle reader mode"
-					>
-						<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.5">
-							<path d="M2 3h12v1H2zm0 3h12v1H2zm0 3h8v1H2zm0 3h10v1H2z"/>
-						</svg>
-					</button>
-				{/if}
+				<button class="nav-btn" onclick={() => add_tab()} aria-label="New tab">
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.7">
+						<rect x="2" y="2" width="12" height="12" rx="2"/>
+						<line x1="8" y1="5" x2="8" y2="11"/>
+						<line x1="5" y1="8" x2="11" y2="8"/>
+					</svg>
+				</button>
 			</div>
 		</div>
 
-		<div class="nav-right">
-			<!-- Share button -->
-			<button class="nav-btn" aria-label="Share">
-				<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.7">
-					<path d="M8 1v8M5 4l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-					<path d="M3 8v5a2 2 0 002 2h6a2 2 0 002-2V8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+		{#if is_private_browsing}
+			<div class="private-indicator">
+				<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+					<path d="M8 2C4 2 1 8 1 8s3 6 7 6 7-6 7-6-3-6-7-6zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z"/>
 				</svg>
-			</button>
-
-			<!-- Add bookmark -->
-			<button class="nav-btn" aria-label="Add bookmark">
-				<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.7">
-					<path d="M8 2l1.796 3.64L14 6.236l-3 2.924.708 4.13L8 11.236 4.292 13.29 5 9.16 2 6.236l4.204-.596z" stroke-linejoin="round"/>
-				</svg>
-			</button>
-
-			<!-- New tab -->
-			<button class="nav-btn" onclick={() => add_tab()} aria-label="New tab">
-				<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" opacity="0.7">
-					<rect x="2" y="2" width="12" height="12" rx="2"/>
-					<line x1="8" y1="5" x2="8" y2="11"/>
-					<line x1="5" y1="8" x2="11" y2="8"/>
-				</svg>
-			</button>
-		</div>
+				Private Browsing
+			</div>
+		{/if}
 	</div>
-
-	{#if is_private_browsing}
-		<div class="private-indicator">
-			<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-				<path d="M8 2C4 2 1 8 1 8s3 6 7 6 7-6 7-6-3-6-7-6zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z"/>
-			</svg>
-			Private Browsing
-		</div>
-	{/if}
 
 	<!-- Main Content Area -->
 	<div class="main-area">
@@ -562,8 +736,8 @@
 					{#each bookmark_folders as folder}
 						<div class="sidebar-folder">
 							<div class="sidebar-folder-name">
-								<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" opacity="0.5">
-									<path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+								<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.5">
+									<path d="M3 1l4 4-4 4"/>
 								</svg>
 								{folder.name}
 							</div>
@@ -571,8 +745,18 @@
 								<button
 									class="sidebar-bookmark"
 									onclick={() => navigate_from_bookmark(item.url)}
+									onmouseenter={() => show_status_url(item.url)}
+									onmouseleave={hide_status_url}
 								>
-									<span class="sidebar-bookmark-icon">{item.icon}</span>
+									<span class="sidebar-bookmark-icon" style="background-color: {item.color}">
+										{#if item.icon === ''}
+											<svg width="8" height="8" viewBox="0 0 20 20" fill="white">
+												<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.5) translate(5, 5)"/>
+											</svg>
+										{:else}
+											<span style="font-size: 8px; font-weight: 700; color: white">{item.icon}</span>
+										{/if}
+									</span>
 									<span class="sidebar-bookmark-title">{item.title}</span>
 								</button>
 							{/each}
@@ -588,7 +772,6 @@
 				<!-- Start Page -->
 				<div class="start-page">
 					<div class="start-page-inner">
-						<!-- Favorites Section -->
 						<section class="start-section">
 							<h2 class="start-section-title">Favorites</h2>
 							<div class="favorites-grid">
@@ -596,10 +779,12 @@
 									<button
 										class="favorite-item"
 										onclick={() => navigate_to_favorite(fav.url)}
+										onmouseenter={() => show_status_url(fav.url)}
+										onmouseleave={hide_status_url}
 									>
 										<div class="favorite-icon" style="background-color: {fav.color}">
 											{#if fav.icon === ''}
-												<svg width="20" height="20" viewBox="0 0 20 20" fill="white">
+												<svg width="24" height="24" viewBox="0 0 20 20" fill="white">
 													<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
 												</svg>
 											{:else}
@@ -612,7 +797,6 @@
 							</div>
 						</section>
 
-						<!-- Frequently Visited Section -->
 						<section class="start-section">
 							<h2 class="start-section-title">Frequently Visited</h2>
 							<div class="frequently-grid">
@@ -620,16 +804,27 @@
 									<button
 										class="frequent-item"
 										onclick={() => navigate_to_favorite(site.url)}
+										onmouseenter={() => show_status_url(site.url)}
+										onmouseleave={hide_status_url}
 									>
 										<div class="frequent-thumbnail">
-											<div class="frequent-icon" style="background-color: {site.color}">
-												{#if site.icon === ''}
-													<svg width="16" height="16" viewBox="0 0 20 20" fill="white">
-														<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
-													</svg>
-												{:else}
-													<span class="frequent-letter">{site.icon}</span>
-												{/if}
+											<div class="frequent-site-preview">
+												<div class="frequent-site-header" style="background-color: {site.color}">
+													<span class="frequent-site-header-dot"></span>
+													<span class="frequent-site-header-dot"></span>
+													<span class="frequent-site-header-dot"></span>
+												</div>
+												<div class="frequent-site-body">
+													<div class="frequent-site-icon" style="background-color: {site.color}">
+														{#if site.icon === ''}
+															<svg width="16" height="16" viewBox="0 0 20 20" fill="white">
+																<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
+															</svg>
+														{:else}
+															<span class="frequent-letter">{site.icon}</span>
+														{/if}
+													</div>
+												</div>
 											</div>
 										</div>
 										<span class="frequent-name">{site.name}</span>
@@ -643,12 +838,18 @@
 				<!-- Reader Mode View -->
 				<div class="reader-mode">
 					<article class="reader-content">
+						<div class="reader-site-name">{active_tab?.display_url ?? ''}</div>
 						<h1 class="reader-title">{active_tab?.title ?? ''}</h1>
-						<p class="reader-url">{active_tab?.display_url ?? ''}</p>
+						<div class="reader-meta">
+							<span class="reader-author">Sample Author</span>
+							<span class="reader-date">February 7, 2026</span>
+						</div>
+						<div class="reader-divider"></div>
 						<div class="reader-body">
 							<p>Reader mode provides a simplified view of web page content, removing ads, navigation, and other distractions for a cleaner reading experience.</p>
 							<p>This is a simulated reader view for <strong>{active_tab?.display_url ?? ''}</strong>. In a real browser, this would extract and display the main article content from the page.</p>
-							<p>Safari's Reader mode automatically detects articles on web pages and reformats them with clean typography, removing clutter and ads for a better reading experience.</p>
+							<p>Safari's Reader mode automatically detects articles on web pages and reformats them with clean typography, removing clutter and ads for a better reading experience. The text is rendered in a comfortable serif typeface at an optimal reading width.</p>
+							<p>Features of Reader mode include adjustable font size, background color options, and a distraction-free layout that puts the content front and center.</p>
 						</div>
 					</article>
 				</div>
@@ -657,13 +858,15 @@
 				<div class="error-page">
 					<div class="error-content">
 						<div class="error-icon">
-							<svg width="48" height="48" viewBox="0 0 48 48" fill="#86868b">
-								<circle cx="24" cy="24" r="20" fill="none" stroke="#86868b" stroke-width="2"/>
-								<path d="M24 14v12M24 30v4" stroke="#86868b" stroke-width="3" stroke-linecap="round"/>
+							<svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+								<circle cx="28" cy="28" r="24" stroke="#c7c7cc" stroke-width="1.5"/>
+								<path d="M28 16v16" stroke="#c7c7cc" stroke-width="2.5" stroke-linecap="round"/>
+								<circle cx="28" cy="38" r="1.5" fill="#c7c7cc"/>
 							</svg>
 						</div>
 						<h2 class="error-title">Safari Can't Open the Page</h2>
-						<p class="error-message">{active_tab.error}</p>
+						<p class="error-message">Safari can't open the page "{active_tab.display_url}" because the server where this page is located isn't responding.</p>
+						<button class="error-retry" onclick={refresh}>Try Again</button>
 					</div>
 				</div>
 			{:else if !is_being_dragged}
@@ -680,6 +883,13 @@
 			{/if}
 		</div>
 	</div>
+
+	<!-- Status Bar (appears on hover over links) -->
+	{#if status_bar_url}
+		<div class="status-bar">
+			<span class="status-bar-text">{status_bar_url}</span>
+		</div>
+	{/if}
 </section>
 
 <style>
@@ -694,19 +904,14 @@
 		overflow: hidden;
 		font-family: var(--system-font-family);
 		color: var(--system-color-light-contrast);
+		position: relative;
 	}
 
-	.container.private {
-		--safari-chrome-bg: linear-gradient(to bottom, #3a3a3c, #2c2c2e);
-		--safari-tab-active-bg: #48484a;
-	}
-
-	/* --- Tab Bar --- */
-	.tab-bar-area {
+	/* --- Unified Toolbar Area --- */
+	.toolbar-area {
 		background: linear-gradient(to bottom, #e8e8ed, #dcdce1);
-		border-bottom: 1px solid #c5c5c7;
-		padding: 8px 80px 0;
-		min-height: 36px;
+		border-bottom: 0.5px solid #b5b5b8;
+		flex-shrink: 0;
 
 		:global(body.dark) & {
 			background: linear-gradient(to bottom, #3a3a3c, #323234);
@@ -714,10 +919,21 @@
 		}
 	}
 
+	.toolbar-area.private-toolbar {
+		background: linear-gradient(to bottom, #4a3b69, #3d3156);
+		border-bottom-color: #2d2445;
+	}
+
+	/* --- Tab Bar --- */
+	.tab-bar {
+		padding: 6px 78px 0;
+		min-height: 34px;
+	}
+
 	.tab-strip {
 		display: flex;
 		align-items: flex-end;
-		gap: 0;
+		gap: 1px;
 		overflow-x: auto;
 		scrollbar-width: none;
 
@@ -731,70 +947,81 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 5px 28px 5px 10px;
-		background: rgba(0, 0, 0, 0.04);
+		padding: 5px 26px 5px 8px;
+		background: transparent;
 		border: none;
-		border-radius: 8px 8px 0 0;
-		font-size: 11.5px;
+		border-radius: 6px 6px 0 0;
+		font-size: 11px;
 		color: #6e6e73;
 		cursor: default;
-		max-width: 200px;
-		min-width: 100px;
+		min-width: 50px;
 		height: 28px;
-		flex-shrink: 0;
-		transition: background-color 100ms ease;
+		flex-shrink: 1;
+		flex-grow: 0;
+		transition: background-color 80ms ease, box-shadow 80ms ease;
+		overflow: hidden;
 
-		&:hover {
-			background: rgba(0, 0, 0, 0.06);
+		&:hover:not(.active) {
+			background: rgba(0, 0, 0, 0.04);
 		}
 
 		&.active {
 			background: #f5f5f7;
 			color: var(--system-color-light-contrast);
-			box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+			box-shadow:
+				-0.5px 0 0 rgba(0, 0, 0, 0.08),
+				0.5px 0 0 rgba(0, 0, 0, 0.08),
+				0 -0.5px 0 rgba(0, 0, 0, 0.04);
 		}
 
 		:global(body.dark) & {
-			background: rgba(255, 255, 255, 0.04);
 			color: #98989d;
 
-			&:hover {
-				background: rgba(255, 255, 255, 0.06);
+			&:hover:not(.active) {
+				background: rgba(255, 255, 255, 0.04);
 			}
 
 			&.active {
-				background: #48484a;
+				background: #2c2c2e;
 				color: #f5f5f7;
-				box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+				box-shadow:
+					-0.5px 0 0 rgba(0, 0, 0, 0.3),
+					0.5px 0 0 rgba(0, 0, 0, 0.3),
+					0 -0.5px 0 rgba(0, 0, 0, 0.2);
 			}
 		}
 	}
 
-	.tab-favicon {
+	.tab-favicon-circle {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 14px;
-		height: 14px;
 		flex-shrink: 0;
-		color: #86868b;
-		font-size: 10px;
 	}
 
 	.tab-favicon-letter {
-		font-size: 10px;
-		font-weight: 600;
-		color: #86868b;
+		font-size: 9px;
+		font-weight: 700;
+		color: white;
+		line-height: 1;
 	}
 
 	.tab-spinner {
 		width: 12px;
 		height: 12px;
-		border: 1.5px solid rgba(0, 0, 0, 0.15);
+		border: 1.5px solid rgba(0, 0, 0, 0.12);
 		border-top-color: #007aff;
 		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+		animation: spin 0.7s linear infinite;
 		flex-shrink: 0;
+
+		:global(body.dark) & {
+			border-color: rgba(255, 255, 255, 0.12);
+			border-top-color: #0a85ff;
+		}
 	}
 
 	@keyframes spin {
@@ -807,11 +1034,12 @@
 		white-space: nowrap;
 		flex: 1;
 		text-align: left;
+		min-width: 0;
 	}
 
 	.tab-close {
 		position: absolute;
-		right: 6px;
+		right: 5px;
 		top: 50%;
 		transform: translateY(-50%);
 		display: flex;
@@ -822,14 +1050,20 @@
 		padding: 0;
 		border: none;
 		background: none;
-		border-radius: 3px;
+		border-radius: 50%;
 		color: #86868b;
 		cursor: pointer;
-		opacity: 0.6;
+		opacity: 0;
+		transition: opacity 100ms ease, background-color 80ms ease;
+
+		.tab:hover &,
+		.tab.active & {
+			opacity: 0.6;
+		}
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.1);
-			opacity: 1;
+			opacity: 1 !important;
 		}
 
 		:global(body.dark) &:hover {
@@ -841,15 +1075,16 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 28px;
+		width: 24px;
 		height: 28px;
 		padding: 0;
 		background: none;
 		border: none;
-		border-radius: 6px;
+		border-radius: 4px;
 		color: #86868b;
 		cursor: pointer;
 		flex-shrink: 0;
+		margin-left: 2px;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.06);
@@ -858,6 +1093,7 @@
 
 		:global(body.dark) &:hover {
 			background: rgba(255, 255, 255, 0.08);
+			color: #f5f5f7;
 		}
 	}
 
@@ -865,14 +1101,16 @@
 	.nav-bar {
 		display: flex;
 		align-items: center;
-		padding: 6px 10px;
+		padding: 4px 10px 6px;
 		gap: 6px;
 		background: #f5f5f7;
-		border-bottom: 1px solid #d1d1d6;
 
 		:global(body.dark) & {
 			background: #2c2c2e;
-			border-bottom-color: #1c1c1e;
+		}
+
+		.private-toolbar & {
+			background: #3d3156;
 		}
 	}
 
@@ -880,7 +1118,7 @@
 	.nav-right {
 		display: flex;
 		align-items: center;
-		gap: 2px;
+		gap: 1px;
 		flex-shrink: 0;
 	}
 
@@ -904,15 +1142,16 @@
 		&.disabled {
 			opacity: 0.3;
 			cursor: default;
-
-			&:hover {
-				background: none;
-			}
+			pointer-events: none;
 		}
 
 		&.active-toggle {
 			background: rgba(0, 122, 255, 0.12);
 			color: #007aff;
+
+			& svg {
+				opacity: 1;
+			}
 		}
 
 		:global(body.dark) & {
@@ -930,7 +1169,7 @@
 	}
 
 	.nav-arrow {
-		padding: 4px 4px;
+		padding: 4px;
 		min-width: 24px;
 	}
 
@@ -939,7 +1178,7 @@
 		flex: 1;
 		max-width: 600px;
 		margin: 0 auto;
-		min-width: 200px;
+		min-width: 180px;
 	}
 
 	.url-bar {
@@ -947,14 +1186,16 @@
 		display: flex;
 		align-items: center;
 		background: rgba(0, 0, 0, 0.06);
-		border-radius: 8px;
+		border-radius: 10px;
 		overflow: hidden;
 		height: 30px;
+		transition: background-color 120ms ease, box-shadow 120ms ease;
 
 		&.focused {
-			outline: 2px solid #007aff;
-			outline-offset: -1px;
 			background: white;
+			box-shadow:
+				0 0 0 3px rgba(0, 122, 255, 0.3),
+				0 0 0 1px rgba(0, 122, 255, 0.6);
 		}
 
 		:global(body.dark) & {
@@ -962,7 +1203,17 @@
 
 			&.focused {
 				background: #1c1c1e;
-				outline-color: #0a85ff;
+				box-shadow:
+					0 0 0 3px rgba(10, 133, 255, 0.3),
+					0 0 0 1px rgba(10, 133, 255, 0.6);
+			}
+		}
+
+		.private-toolbar & {
+			background: rgba(0, 0, 0, 0.2);
+
+			&.focused {
+				background: rgba(0, 0, 0, 0.35);
 			}
 		}
 	}
@@ -972,9 +1223,9 @@
 		top: 0;
 		left: 0;
 		height: 2px;
-		background: #007aff;
+		background: linear-gradient(90deg, #007aff, #34aadc);
 		border-radius: 0 1px 1px 0;
-		transition: width 200ms ease;
+		transition: width 150ms cubic-bezier(0.4, 0, 0.2, 1);
 		z-index: 2;
 	}
 
@@ -988,10 +1239,10 @@
 	.url-bar input {
 		width: 100%;
 		height: 100%;
-		padding: 0 10px;
+		padding: 0 8px;
 		border: none;
 		background: none;
-		font-size: 13px;
+		font-size: 12.5px;
 		color: var(--system-color-light-contrast);
 		outline: none;
 		font-family: var(--system-font-family);
@@ -999,6 +1250,7 @@
 		&.centered {
 			text-align: center;
 			padding-left: 0;
+			padding-right: 0;
 		}
 
 		&::placeholder {
@@ -1006,22 +1258,35 @@
 			text-align: center;
 		}
 
+		&::selection {
+			background: rgba(0, 122, 255, 0.2);
+		}
+
 		:global(body.dark) & {
 			color: #f5f5f7;
+
+			&::selection {
+				background: rgba(10, 133, 255, 0.3);
+			}
+		}
+
+		.private-toolbar & {
+			color: #e5e5e7;
 		}
 	}
 
-	.url-reader-btn {
+	.url-action-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 4px 8px;
+		padding: 4px 6px;
 		border: none;
 		background: none;
 		border-radius: 4px;
 		cursor: pointer;
 		flex-shrink: 0;
 		color: var(--system-color-light-contrast);
+		margin-right: 2px;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.06);
@@ -1030,6 +1295,14 @@
 		&.active-reader {
 			background: rgba(0, 122, 255, 0.15);
 			color: #007aff;
+
+			& svg {
+				opacity: 1;
+			}
+		}
+
+		:global(body.dark) &:hover {
+			background: rgba(255, 255, 255, 0.08);
 		}
 	}
 
@@ -1040,8 +1313,8 @@
 		justify-content: center;
 		gap: 6px;
 		padding: 3px 0;
-		background: #4a3b69;
-		color: white;
+		background: rgba(0, 0, 0, 0.15);
+		color: rgba(255, 255, 255, 0.8);
 		font-size: 11px;
 		font-weight: 500;
 	}
@@ -1051,27 +1324,30 @@
 		flex: 1;
 		display: flex;
 		overflow: hidden;
+		min-height: 0;
 	}
 
 	/* --- Sidebar --- */
 	.sidebar {
 		width: 220px;
 		min-width: 220px;
-		background: #f2f2f7;
-		border-right: 1px solid #d1d1d6;
+		background: rgba(242, 242, 247, 0.92);
+		backdrop-filter: blur(20px) saturate(180%);
+		-webkit-backdrop-filter: blur(20px) saturate(180%);
+		border-right: 0.5px solid rgba(0, 0, 0, 0.12);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 
 		:global(body.dark) & {
-			background: #1c1c1e;
-			border-right-color: #38383a;
+			background: rgba(28, 28, 30, 0.88);
+			border-right-color: rgba(255, 255, 255, 0.08);
 		}
 	}
 
 	.sidebar-header {
 		padding: 10px 14px;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+		border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
 
 		:global(body.dark) & {
 			border-bottom-color: rgba(255, 255, 255, 0.06);
@@ -1099,7 +1375,7 @@
 		align-items: center;
 		gap: 6px;
 		padding: 6px 14px;
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 600;
 		color: #86868b;
 		text-transform: uppercase;
@@ -1111,13 +1387,14 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		padding: 5px 14px 5px 30px;
+		padding: 4px 14px 4px 28px;
 		border: none;
 		background: none;
-		font-size: 13px;
+		font-size: 12px;
 		color: var(--system-color-light-contrast);
 		cursor: pointer;
 		text-align: left;
+		border-radius: 0;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.04);
@@ -1134,11 +1411,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: #007aff;
-		border-radius: 3px;
-		font-size: 8px;
-		font-weight: 700;
-		color: white;
+		border-radius: 4px;
 		flex-shrink: 0;
 	}
 
@@ -1153,6 +1426,7 @@
 		flex: 1;
 		overflow: hidden;
 		position: relative;
+		min-width: 0;
 	}
 
 	iframe {
@@ -1182,7 +1456,7 @@
 		width: 100%;
 		height: 100%;
 		overflow-y: auto;
-		background: linear-gradient(180deg, #f5f5f7 0%, #e8e8ed 100%);
+		background: linear-gradient(180deg, #f5f5f7 0%, #ececf0 100%);
 
 		:global(body.dark) & {
 			background: linear-gradient(180deg, #1c1c1e 0%, #2c2c2e 100%);
@@ -1192,7 +1466,7 @@
 	.start-page-inner {
 		max-width: 720px;
 		margin: 0 auto;
-		padding: 40px 24px;
+		padding: 40px 28px;
 	}
 
 	.start-section {
@@ -1208,8 +1482,8 @@
 
 	.favorites-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-		gap: 16px;
+		grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+		gap: 8px 4px;
 	}
 
 	.favorite-item {
@@ -1221,10 +1495,14 @@
 		border: none;
 		background: none;
 		cursor: pointer;
-		border-radius: 8px;
+		border-radius: 10px;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.04);
+		}
+
+		&:active .favorite-icon {
+			transform: scale(0.95);
 		}
 
 		:global(body.dark) &:hover {
@@ -1233,31 +1511,40 @@
 	}
 
 	.favorite-icon {
-		width: 48px;
-		height: 48px;
+		width: 52px;
+		height: 52px;
 		border-radius: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+		box-shadow:
+			0 1px 3px rgba(0, 0, 0, 0.08),
+			0 0 0 0.5px rgba(0, 0, 0, 0.06),
+			inset 0 1px 0 rgba(255, 255, 255, 0.1);
+		transition: transform 100ms ease;
 	}
 
 	.favorite-letter {
-		font-size: 20px;
+		font-size: 22px;
 		font-weight: 700;
 		color: white;
 	}
 
 	.favorite-name {
 		font-size: 11px;
-		color: #86868b;
+		color: #6e6e73;
 		text-align: center;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		max-width: 72px;
+		max-width: 76px;
+
+		:global(body.dark) & {
+			color: #98989d;
+		}
 	}
 
+	/* --- Frequently Visited --- */
 	.frequently-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -1276,7 +1563,11 @@
 		overflow: hidden;
 
 		&:hover .frequent-thumbnail {
-			box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+			box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+		}
+
+		&:active .frequent-thumbnail {
+			transform: scale(0.98);
 		}
 	}
 
@@ -1284,19 +1575,47 @@
 		width: 100%;
 		aspect-ratio: 16 / 10;
 		border-radius: 8px;
-		background: white;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		overflow: hidden;
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
-		transition: box-shadow 150ms ease;
+		transition: box-shadow 150ms ease, transform 100ms ease;
+	}
+
+	.frequent-site-preview {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		background: white;
 
 		:global(body.dark) & {
-			background: #3a3a3c;
+			background: #2c2c2e;
 		}
 	}
 
-	.frequent-icon {
+	.frequent-site-header {
+		height: 16px;
+		display: flex;
+		align-items: center;
+		padding: 0 6px;
+		gap: 3px;
+		opacity: 0.15;
+	}
+
+	.frequent-site-header-dot {
+		width: 4px;
+		height: 4px;
+		border-radius: 50%;
+		background: white;
+	}
+
+	.frequent-site-body {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.frequent-site-icon {
 		width: 32px;
 		height: 32px;
 		border-radius: 8px;
@@ -1313,11 +1632,15 @@
 
 	.frequent-name {
 		font-size: 11px;
-		color: #86868b;
+		color: #6e6e73;
 		padding: 0 4px 6px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+
+		:global(body.dark) & {
+			color: #98989d;
+		}
 	}
 
 	/* --- Reader Mode --- */
@@ -1325,7 +1648,7 @@
 		width: 100%;
 		height: 100%;
 		overflow-y: auto;
-		background: #fafafa;
+		background: #fafaf8;
 
 		:global(body.dark) & {
 			background: #1c1c1e;
@@ -1333,36 +1656,75 @@
 	}
 
 	.reader-content {
-		max-width: 600px;
+		max-width: 580px;
 		margin: 0 auto;
-		padding: 48px 24px;
+		padding: 48px 24px 64px;
+	}
+
+	.reader-site-name {
+		font-size: 13px;
+		font-weight: 500;
+		color: #86868b;
+		margin-bottom: 8px;
+		font-family: var(--system-font-family);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
 	.reader-title {
-		font-size: 28px;
+		font-family: Georgia, 'Times New Roman', serif;
+		font-size: 32px;
 		font-weight: 700;
 		line-height: 1.2;
-		margin: 0 0 8px;
+		margin: 0 0 12px;
 		color: var(--system-color-light-contrast);
+		letter-spacing: -0.3px;
 	}
 
-	.reader-url {
+	.reader-meta {
+		display: flex;
+		gap: 12px;
 		font-size: 13px;
 		color: #86868b;
-		margin: 0 0 32px;
+		margin-bottom: 20px;
+	}
+
+	.reader-author {
+		font-weight: 500;
+		color: #007aff;
+	}
+
+	.reader-date {
+		color: #86868b;
+	}
+
+	.reader-divider {
+		height: 1px;
+		background: rgba(0, 0, 0, 0.08);
+		margin-bottom: 28px;
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.08);
+		}
 	}
 
 	.reader-body {
-		font-size: 18px;
-		line-height: 1.7;
-		color: var(--system-color-light-contrast);
+		font-family: Georgia, 'Times New Roman', serif;
+		font-size: 19px;
+		line-height: 1.75;
+		color: #333;
+		letter-spacing: 0.1px;
+
+		:global(body.dark) & {
+			color: #d1d1d6;
+		}
 
 		p {
-			margin: 0 0 20px;
+			margin: 0 0 24px;
 		}
 
 		strong {
-			font-weight: 600;
+			font-weight: 700;
 		}
 	}
 
@@ -1373,17 +1735,21 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--system-color-light);
+		background: #f5f5f7;
+
+		:global(body.dark) & {
+			background: #1c1c1e;
+		}
 	}
 
 	.error-content {
 		text-align: center;
-		max-width: 400px;
+		max-width: 360px;
 		padding: 24px;
 	}
 
 	.error-icon {
-		margin-bottom: 16px;
+		margin-bottom: 20px;
 	}
 
 	.error-title {
@@ -1396,7 +1762,75 @@
 	.error-message {
 		font-size: 13px;
 		color: #86868b;
-		margin: 0;
+		margin: 0 0 20px;
 		line-height: 1.5;
+	}
+
+	.error-retry {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 6px 16px;
+		background: rgba(0, 0, 0, 0.06);
+		border: none;
+		border-radius: 6px;
+		font-size: 13px;
+		font-weight: 500;
+		color: #007aff;
+		cursor: pointer;
+		font-family: var(--system-font-family);
+
+		&:hover {
+			background: rgba(0, 0, 0, 0.1);
+		}
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.08);
+			color: #0a85ff;
+
+			&:hover {
+				background: rgba(255, 255, 255, 0.12);
+			}
+		}
+	}
+
+	/* --- Status Bar --- */
+	.status-bar {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		max-width: 50%;
+		padding: 3px 10px;
+		background: rgba(242, 242, 247, 0.92);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		border-top-right-radius: 4px;
+		border-right: 0.5px solid rgba(0, 0, 0, 0.08);
+		border-top: 0.5px solid rgba(0, 0, 0, 0.08);
+		z-index: 10;
+		animation: status-fade-in 100ms ease;
+
+		:global(body.dark) & {
+			background: rgba(44, 44, 46, 0.92);
+			border-color: rgba(255, 255, 255, 0.08);
+		}
+	}
+
+	@keyframes status-fade-in {
+		from { opacity: 0; transform: translateY(4px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.status-bar-text {
+		font-size: 11px;
+		color: #6e6e73;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: block;
+
+		:global(body.dark) & {
+			color: #98989d;
+		}
 	}
 </style>

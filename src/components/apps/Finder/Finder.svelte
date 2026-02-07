@@ -29,6 +29,20 @@
 	let renaming_file = $state<string | null>(null);
 	let rename_value = $state('');
 
+	// Drag selection state
+	let drag_selecting = $state(false);
+	let drag_start_x = $state(0);
+	let drag_start_y = $state(0);
+	let drag_current_x = $state(0);
+	let drag_current_y = $state(0);
+
+	// Keyboard focus tracking
+	let focused_index = $state(-1);
+
+	// Element refs
+	let content_area_el: HTMLDivElement | undefined = $state(undefined);
+	let rename_input_el: HTMLInputElement | undefined = $state(undefined);
+
 	const current_folder = $derived(path_stack[path_stack.length - 1]);
 
 	const sidebar_favorites = [
@@ -201,7 +215,7 @@
 		}
 
 		if (kind === 'Application' || ext === 'app') {
-			return '<svg viewBox="0 0 40 40" fill="none"><rect x="4" y="4" width="32" height="32" rx="8" fill="#E0E0E0" stroke="#BDBDBD" stroke-width="1"/><rect x="8" y="8" width="24" height="24" rx="4" fill="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"/><rect x="8" y="8" width="24" height="24" rx="4" fill="#667eea"/><path d="M16 16h8v8h-8z" fill="white" opacity="0.8"/></svg>';
+			return '<svg viewBox="0 0 40 40" fill="none"><rect x="4" y="4" width="32" height="32" rx="8" fill="#E0E0E0" stroke="#BDBDBD" stroke-width="1"/><rect x="8" y="8" width="24" height="24" rx="4" fill="#667eea"/><path d="M16 16h8v8h-8z" fill="white" opacity="0.8"/></svg>';
 		}
 
 		if (kind === 'PDF Document' || ext === 'pdf') {
@@ -297,6 +311,18 @@
 
 	const current_files = $derived(get_sorted_files(files[current_folder] || []));
 
+	const item_count_text = $derived(
+		(() => {
+			const count = current_files.length;
+			if (selected_files.size > 0) {
+				return `${selected_files.size} of ${count} selected`;
+			}
+			return `${count} item${count !== 1 ? 's' : ''}`;
+		})()
+	);
+
+	const available_text = $derived('142.8 GB available');
+
 	function navigate_to(folder: string, from_sidebar = false) {
 		if (from_sidebar) {
 			path_stack = [folder];
@@ -307,6 +333,7 @@
 		selected_files = new Set();
 		renaming_file = null;
 		search_query = '';
+		focused_index = -1;
 	}
 
 	function go_back() {
@@ -316,6 +343,7 @@
 			path_stack = path_stack.slice(0, -1);
 			selected_files = new Set();
 			renaming_file = null;
+			focused_index = -1;
 		}
 	}
 
@@ -326,12 +354,14 @@
 			forward_stack = forward_stack.slice(1);
 			selected_files = new Set();
 			renaming_file = null;
+			focused_index = -1;
 		}
 	}
 
 	function handle_file_click(file: FileEntry, event: MouseEvent) {
 		renaming_file = null;
-		if (event.shiftKey) {
+		const idx = current_files.indexOf(file);
+		if (event.metaKey || event.ctrlKey) {
 			const new_set = new Set(selected_files);
 			if (new_set.has(file.name)) {
 				new_set.delete(file.name);
@@ -339,17 +369,18 @@
 				new_set.add(file.name);
 			}
 			selected_files = new_set;
-		} else if (event.metaKey) {
-			const new_set = new Set(selected_files);
-			if (new_set.has(file.name)) {
-				new_set.delete(file.name);
-			} else {
-				new_set.add(file.name);
+		} else if (event.shiftKey && focused_index >= 0) {
+			const start = Math.min(focused_index, idx);
+			const end = Math.max(focused_index, idx);
+			const new_set = new Set<string>();
+			for (let i = start; i <= end; i++) {
+				new_set.add(current_files[i].name);
 			}
 			selected_files = new_set;
 		} else {
 			selected_files = new Set([file.name]);
 		}
+		focused_index = idx;
 	}
 
 	function handle_file_dblclick(file: FileEntry) {
@@ -385,7 +416,6 @@
 	function ctx_action(action: string) {
 		switch (action) {
 			case 'new-folder':
-				// Add a new folder to current directory
 				if (files[current_folder]) {
 					files[current_folder] = [
 						{ name: 'untitled folder', kind: 'Folder', size: '--', modified: 'Today' },
@@ -397,7 +427,6 @@
 				}
 				break;
 			case 'get-info':
-				// No-op for demo
 				break;
 			case 'copy':
 				clipboard = { action: 'copy', files: [...selected_files] };
@@ -406,7 +435,6 @@
 				clipboard = { action: 'cut', files: [...selected_files] };
 				break;
 			case 'paste':
-				// No-op for demo
 				break;
 			case 'rename':
 				if (selected_files.size === 1) {
@@ -431,6 +459,7 @@
 				if (files[current_folder]) {
 					files[current_folder] = files[current_folder].filter(f => !selected_files.has(f.name));
 					selected_files = new Set();
+					focused_index = -1;
 				}
 				break;
 			case 'select-all':
@@ -472,11 +501,8 @@
 		if (event.target === event.currentTarget) {
 			selected_files = new Set();
 			renaming_file = null;
+			focused_index = -1;
 		}
-	}
-
-	function breadcrumb_segments(): string[] {
-		return path_stack;
 	}
 
 	function navigate_to_breadcrumb(index: number) {
@@ -484,25 +510,141 @@
 		forward_stack = [];
 		selected_files = new Set();
 		renaming_file = null;
+		focused_index = -1;
 	}
 
-	const item_count_text = $derived(() => {
-		const count = current_files.length;
-		return `${count} item${count !== 1 ? 's' : ''}`;
-	});
+	// Keyboard navigation
+	function handle_keydown(event: KeyboardEvent) {
+		if (renaming_file) return;
 
-	const available_text = $derived(() => {
-		return '142.8 GB available';
-	});
+		const meta = event.metaKey || event.ctrlKey;
 
-	function get_sort_indicator(col: string): string {
-		if (sort_by !== col) return '';
-		return sort_asc ? ' \u25B4' : ' \u25BE';
+		if (meta && event.key === 'a') {
+			event.preventDefault();
+			selected_files = new Set(current_files.map(f => f.name));
+			return;
+		}
+
+		if (event.key === 'Backspace' && meta) {
+			event.preventDefault();
+			if (selected_files.size > 0 && files[current_folder]) {
+				files[current_folder] = files[current_folder].filter(f => !selected_files.has(f.name));
+				selected_files = new Set();
+				focused_index = -1;
+			}
+			return;
+		}
+
+		if (event.key === 'Enter' && selected_files.size === 1) {
+			event.preventDefault();
+			const name = [...selected_files][0];
+			const file = current_files.find(f => f.name === name);
+			if (file && file.kind === 'Folder' && files[file.name]) {
+				navigate_to(file.name);
+			}
+			return;
+		}
+
+		if (event.key === 'Backspace' && !meta && path_stack.length > 1) {
+			event.preventDefault();
+			go_back();
+			return;
+		}
+
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			if (current_files.length === 0) return;
+			const next = focused_index < current_files.length - 1 ? focused_index + 1 : focused_index;
+			focused_index = next;
+			if (event.shiftKey) {
+				const new_set = new Set(selected_files);
+				new_set.add(current_files[next].name);
+				selected_files = new_set;
+			} else {
+				selected_files = new Set([current_files[next].name]);
+			}
+			return;
+		}
+
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			if (current_files.length === 0) return;
+			const prev = focused_index > 0 ? focused_index - 1 : 0;
+			focused_index = prev;
+			if (event.shiftKey) {
+				const new_set = new Set(selected_files);
+				new_set.add(current_files[prev].name);
+				selected_files = new_set;
+			} else {
+				selected_files = new Set([current_files[prev].name]);
+			}
+			return;
+		}
 	}
+
+	// Drag selection handlers
+	function handle_drag_start(event: MouseEvent) {
+		if (event.target !== event.currentTarget) return;
+		if (event.button !== 0) return;
+
+		const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+		drag_start_x = event.clientX - rect.left;
+		drag_start_y = event.clientY - rect.top;
+		drag_current_x = drag_start_x;
+		drag_current_y = drag_start_y;
+		drag_selecting = true;
+
+		if (!event.shiftKey && !event.metaKey) {
+			selected_files = new Set();
+		}
+	}
+
+	function handle_drag_move(event: MouseEvent) {
+		if (!drag_selecting) return;
+		const rect = content_area_el?.getBoundingClientRect();
+		if (!rect) return;
+		drag_current_x = event.clientX - rect.left;
+		drag_current_y = event.clientY - rect.top;
+	}
+
+	function handle_drag_end() {
+		drag_selecting = false;
+	}
+
+	const drag_rect_style = $derived(
+		drag_selecting
+			? `left:${Math.min(drag_start_x, drag_current_x)}px;top:${Math.min(drag_start_y, drag_current_y)}px;width:${Math.abs(drag_current_x - drag_start_x)}px;height:${Math.abs(drag_current_y - drag_start_y)}px`
+			: ''
+	);
+
+	// Auto-focus rename input
+	$effect(() => {
+		if (renaming_file && rename_input_el) {
+			rename_input_el.focus();
+			rename_input_el.select();
+		}
+	});
+
+	// Clean up drag selection on mouse up globally
+	$effect(() => {
+		const handler = () => {
+			if (drag_selecting) {
+				drag_selecting = false;
+			}
+		};
+		window.addEventListener('mouseup', handler);
+		return () => window.removeEventListener('mouseup', handler);
+	});
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<section class="container" onclick={close_context_menu}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<section
+	class="container"
+	onclick={close_context_menu}
+	onkeydown={handle_keydown}
+	tabindex="0"
+>
 	<!-- Toolbar -->
 	<header class="app-window-drag-handle toolbar">
 		<div class="toolbar-nav">
@@ -528,7 +670,24 @@
 			</button>
 		</div>
 
-		<div class="toolbar-title">{current_folder}</div>
+		<div class="toolbar-title">
+			{#each path_stack as segment, i}
+				{#if i > 0}
+					<span class="title-separator">
+						<svg width="7" height="10" viewBox="0 0 7 10" fill="none">
+							<path d="M1.5 1.5l3.5 3.5-3.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					</span>
+				{/if}
+				<button
+					class="title-segment"
+					class:current={i === path_stack.length - 1}
+					onclick={() => navigate_to_breadcrumb(i)}
+				>
+					{segment}
+				</button>
+			{/each}
+		</div>
 
 		<div class="toolbar-right">
 			<div class="view-buttons">
@@ -620,26 +779,6 @@
 		</div>
 	</header>
 
-	<!-- Breadcrumb / path bar -->
-	<div class="path-bar">
-		{#each breadcrumb_segments() as segment, i}
-			{#if i > 0}
-				<span class="path-separator">
-					<svg width="7" height="10" viewBox="0 0 7 10" fill="none">
-						<path d="M1 1l4 4-4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-					</svg>
-				</span>
-			{/if}
-			<button
-				class="path-segment"
-				class:current={i === path_stack.length - 1}
-				onclick={() => navigate_to_breadcrumb(i)}
-			>
-				{segment}
-			</button>
-		{/each}
-	</div>
-
 	<div class="main">
 		<!-- Sidebar -->
 		<aside class="sidebar">
@@ -651,7 +790,7 @@
 						class:active={current_folder === item.name && path_stack.length === 1}
 						onclick={() => navigate_to(item.name, true)}
 					>
-						<span class="sidebar-icon" style="color: {item.name === current_folder && path_stack.length === 1 ? 'white' : '#6e6e73'}">
+						<span class="sidebar-icon" class:icon-active={current_folder === item.name && path_stack.length === 1}>
 							{@html get_sidebar_svg(item.icon)}
 						</span>
 						<span class="sidebar-label">{item.name}</span>
@@ -667,7 +806,7 @@
 						class:active={current_folder === item.name && path_stack.length === 1}
 						onclick={() => navigate_to(item.name, true)}
 					>
-						<span class="sidebar-icon" style="color: {item.name === current_folder && path_stack.length === 1 ? 'white' : '#6e6e73'}">
+						<span class="sidebar-icon" class:icon-active={current_folder === item.name && path_stack.length === 1}>
 							{@html get_sidebar_svg(item.icon)}
 						</span>
 						<span class="sidebar-label">{item.name}</span>
@@ -690,46 +829,81 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="content-area"
+			bind:this={content_area_el}
 			oncontextmenu={(e) => handle_context_menu(e, null)}
 			onclick={clear_selection_on_empty}
+			onmousedown={handle_drag_start}
+			onmousemove={handle_drag_move}
+			onmouseup={handle_drag_end}
 		>
 			{#if view_mode === 'list'}
 				<!-- List view -->
 				<div class="column-headers">
 					<button class="col-header col-name" onclick={() => handle_sort('name')}>
-						Name{get_sort_indicator('name')}
+						<span>Name</span>
+						{#if sort_by === 'name'}
+							<svg class="sort-chevron" class:desc={!sort_asc} width="8" height="5" viewBox="0 0 8 5" fill="none">
+								<path d="M1 4L4 1L7 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						{/if}
 					</button>
 					<button class="col-header col-modified" onclick={() => handle_sort('modified')}>
-						Date Modified{get_sort_indicator('modified')}
+						<span>Date Modified</span>
+						{#if sort_by === 'modified'}
+							<svg class="sort-chevron" class:desc={!sort_asc} width="8" height="5" viewBox="0 0 8 5" fill="none">
+								<path d="M1 4L4 1L7 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						{/if}
 					</button>
 					<button class="col-header col-size" onclick={() => handle_sort('size')}>
-						Size{get_sort_indicator('size')}
+						<span>Size</span>
+						{#if sort_by === 'size'}
+							<svg class="sort-chevron" class:desc={!sort_asc} width="8" height="5" viewBox="0 0 8 5" fill="none">
+								<path d="M1 4L4 1L7 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						{/if}
 					</button>
 					<button class="col-header col-kind" onclick={() => handle_sort('kind')}>
-						Kind{get_sort_indicator('kind')}
+						<span>Kind</span>
+						{#if sort_by === 'kind'}
+							<svg class="sort-chevron" class:desc={!sort_asc} width="8" height="5" viewBox="0 0 8 5" fill="none">
+								<path d="M1 4L4 1L7 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						{/if}
 					</button>
 				</div>
 
-				<div class="file-list">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="file-list" onclick={clear_selection_on_empty}>
 					{#if current_files.length === 0}
 						<div class="empty-folder">
-							{#if search_query}
-								No items match your search.
-							{:else}
-								This folder is empty.
-							{/if}
+							<div class="empty-folder-content">
+								<svg class="empty-folder-icon" width="64" height="64" viewBox="0 0 64 64" fill="none">
+									<path d="M8 16c0-2.21 2.69-4 6-4h14l4 6h18c3.31 0 6 1.79 6 4v28c0 2.21-2.69 4-6 4H14c-3.31 0-6-1.79-6-4V16z" fill="#D1D1D6" opacity="0.5"/>
+									<path d="M8 22h48v28c0 2.21-2.69 4-6 4H14c-3.31 0-6-1.79-6-4V22z" fill="#C7C7CC" opacity="0.4"/>
+								</svg>
+								<span class="empty-folder-text">
+									{#if search_query}
+										No items match "{search_query}"
+									{:else}
+										This folder is empty
+									{/if}
+								</span>
+							</div>
 						</div>
 					{/if}
-					{#each current_files as file (file.name)}
+					{#each current_files as file, i (file.name)}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="file-row"
 							class:selected={selected_files.has(file.name)}
-							onclick={(e) => handle_file_click(file, e)}
+							class:focused={focused_index === i}
+							class:even={i % 2 === 0}
+							onclick={(e) => { e.stopPropagation(); handle_file_click(file, e); }}
 							ondblclick={() => handle_file_dblclick(file)}
 							oncontextmenu={(e) => handle_context_menu(e, file.name)}
 							role="button"
-							tabindex="0"
+							tabindex="-1"
 						>
 							<span class="col-name">
 								<span class="file-icon-wrapper list-icon">
@@ -740,6 +914,7 @@
 										class="rename-input"
 										type="text"
 										bind:value={rename_value}
+										bind:this={rename_input_el}
 										onblur={finish_rename}
 										onkeydown={handle_rename_keydown}
 									/>
@@ -756,26 +931,35 @@
 
 			{:else if view_mode === 'icons'}
 				<!-- Icon view -->
-				<div class="icon-grid">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="icon-grid" onclick={clear_selection_on_empty}>
 					{#if current_files.length === 0}
 						<div class="empty-folder">
-							{#if search_query}
-								No items match your search.
-							{:else}
-								This folder is empty.
-							{/if}
+							<div class="empty-folder-content">
+								<svg class="empty-folder-icon" width="64" height="64" viewBox="0 0 64 64" fill="none">
+									<path d="M8 16c0-2.21 2.69-4 6-4h14l4 6h18c3.31 0 6 1.79 6 4v28c0 2.21-2.69 4-6 4H14c-3.31 0-6-1.79-6-4V16z" fill="#D1D1D6" opacity="0.5"/>
+									<path d="M8 22h48v28c0 2.21-2.69 4-6 4H14c-3.31 0-6-1.79-6-4V22z" fill="#C7C7CC" opacity="0.4"/>
+								</svg>
+								<span class="empty-folder-text">
+									{#if search_query}
+										No items match "{search_query}"
+									{:else}
+										This folder is empty
+									{/if}
+								</span>
+							</div>
 						</div>
 					{/if}
-					{#each current_files as file (file.name)}
+					{#each current_files as file, i (file.name)}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="icon-item"
 							class:selected={selected_files.has(file.name)}
-							onclick={(e) => handle_file_click(file, e)}
+							onclick={(e) => { e.stopPropagation(); handle_file_click(file, e); }}
 							ondblclick={() => handle_file_dblclick(file)}
 							oncontextmenu={(e) => handle_context_menu(e, file.name)}
 							role="button"
-							tabindex="0"
+							tabindex="-1"
 						>
 							<div class="icon-image">
 								{@html get_file_icon_svg(file)}
@@ -785,6 +969,7 @@
 									class="rename-input icon-rename"
 									type="text"
 									bind:value={rename_value}
+									bind:this={rename_input_el}
 									onblur={finish_rename}
 									onkeydown={handle_rename_keydown}
 								/>
@@ -801,16 +986,16 @@
 				<!-- Column view -->
 				<div class="column-view">
 					<div class="column-pane">
-						{#each current_files as file (file.name)}
+						{#each current_files as file, i (file.name)}
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class="column-row"
 								class:selected={selected_files.has(file.name)}
-								onclick={(e) => handle_file_click(file, e)}
+								onclick={(e) => { e.stopPropagation(); handle_file_click(file, e); }}
 								ondblclick={() => handle_file_dblclick(file)}
 								oncontextmenu={(e) => handle_context_menu(e, file.name)}
 								role="button"
-								tabindex="0"
+								tabindex="-1"
 							>
 								<span class="file-icon-wrapper column-icon">
 									{@html get_file_icon_svg(file)}
@@ -870,23 +1055,23 @@
 									{@html get_file_icon_svg(sel_file)}
 								</div>
 								<div class="gallery-file-name">{sel_file.name}</div>
-								<div class="gallery-file-info">{sel_file.kind} - {sel_file.size}</div>
+								<div class="gallery-file-info">{sel_file.kind} &mdash; {sel_file.size}</div>
 							{/if}
 						{:else}
 							<div class="gallery-placeholder">Select a file to preview</div>
 						{/if}
 					</div>
 					<div class="gallery-strip">
-						{#each current_files as file (file.name)}
+						{#each current_files as file, i (file.name)}
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class="gallery-thumb"
 								class:selected={selected_files.has(file.name)}
-								onclick={(e) => handle_file_click(file, e)}
+								onclick={(e) => { e.stopPropagation(); handle_file_click(file, e); }}
 								ondblclick={() => handle_file_dblclick(file)}
 								oncontextmenu={(e) => handle_context_menu(e, file.name)}
 								role="button"
-								tabindex="0"
+								tabindex="-1"
 							>
 								<span class="gallery-thumb-icon">
 									{@html get_file_icon_svg(file)}
@@ -895,6 +1080,11 @@
 						{/each}
 					</div>
 				</div>
+			{/if}
+
+			<!-- Drag selection rectangle -->
+			{#if drag_selecting && Math.abs(drag_current_x - drag_start_x) + Math.abs(drag_current_y - drag_start_y) > 4}
+				<div class="drag-select-rect" style={drag_rect_style}></div>
 			{/if}
 
 			<!-- Context menu -->
@@ -923,7 +1113,7 @@
 							<span class="ctx-shortcut">&#8984;D</span>
 						</button>
 						<div class="ctx-divider"></div>
-						<button class="ctx-item" onclick={() => ctx_action('move-to-trash')}>
+						<button class="ctx-item destructive" onclick={() => ctx_action('move-to-trash')}>
 							<span class="ctx-text">Move to Trash</span>
 							<span class="ctx-shortcut">&#8984;&#9003;</span>
 						</button>
@@ -956,10 +1146,10 @@
 	</div>
 
 	<!-- Status bar -->
-	<div class="status-bar">
-		<span>{item_count_text()}</span>
-		<span>{available_text()}</span>
-	</div>
+	<footer class="status-bar">
+		<span>{item_count_text}</span>
+		<span>{available_text}</span>
+	</footer>
 </section>
 
 <style>
@@ -976,20 +1166,23 @@
 		color: var(--system-color-light-contrast);
 		-webkit-font-smoothing: antialiased;
 		user-select: none;
+		outline: none;
 	}
 
 	/* ===== Toolbar ===== */
 	.toolbar {
 		display: flex;
 		align-items: center;
-		padding: 6px 12px;
-		background: linear-gradient(to bottom, #f6f6f6, #e2e2e2);
-		border-bottom: 1px solid #c8c8c8;
+		padding: 0 12px;
+		background: linear-gradient(180deg, #f6f6f6 0%, #ececec 100%);
+		border-bottom: 0.5px solid #c4c4c6;
 		gap: 8px;
-		min-height: 38px;
+		height: 52px;
+		min-height: 52px;
+		flex-shrink: 0;
 
 		:global(body.dark) & {
-			background: linear-gradient(to bottom, #3c3c3e, #2c2c2e);
+			background: linear-gradient(180deg, #3c3c3e 0%, #323234 100%);
 			border-bottom-color: #1c1c1e;
 		}
 	}
@@ -997,6 +1190,7 @@
 	.toolbar-nav {
 		display: flex;
 		gap: 2px;
+		flex-shrink: 0;
 	}
 
 	.nav-btn {
@@ -1007,7 +1201,7 @@
 		height: 24px;
 		background: none;
 		border: none;
-		color: #4a4a4a;
+		color: #4a4a4c;
 		border-radius: 4px;
 		cursor: pointer;
 		padding: 0;
@@ -1016,195 +1210,58 @@
 			background-color: rgba(0, 0, 0, 0.06);
 		}
 
+		&:active:not(:disabled) {
+			background-color: rgba(0, 0, 0, 0.1);
+		}
+
 		&:disabled {
 			opacity: 0.3;
 			cursor: default;
 		}
 
 		:global(body.dark) & {
-			color: #b0b0b0;
+			color: #b0b0b4;
 
 			&:hover:not(:disabled) {
 				background-color: rgba(255, 255, 255, 0.08);
+			}
+
+			&:active:not(:disabled) {
+				background-color: rgba(255, 255, 255, 0.12);
 			}
 		}
 	}
 
 	.toolbar-title {
 		flex: 1;
-		text-align: center;
-		font-weight: 600;
-		font-size: 13px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.toolbar-right {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.view-buttons {
-		display: flex;
-		background: rgba(0, 0, 0, 0.06);
-		border-radius: 5px;
-		padding: 1px;
-
-		:global(body.dark) & {
-			background: rgba(255, 255, 255, 0.08);
-		}
-	}
-
-	.view-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 26px;
-		height: 22px;
-		background: none;
-		border: none;
-		color: #6e6e73;
-		border-radius: 4px;
-		cursor: pointer;
-		padding: 0;
-
-		&.active {
-			background: white;
-			color: #1c1c1e;
-			box-shadow: 0 0.5px 1px rgba(0,0,0,0.15), 0 0 0.5px rgba(0,0,0,0.1);
-		}
-
-		&:hover:not(.active) {
-			color: #3c3c3c;
-		}
-
-		:global(body.dark) & {
-			color: #8e8e93;
-
-			&.active {
-				background: #5a5a5c;
-				color: white;
-				box-shadow: 0 0.5px 1px rgba(0,0,0,0.3);
-			}
-		}
-	}
-
-	.toolbar-separator {
-		width: 1px;
-		height: 16px;
-		background: rgba(0, 0, 0, 0.12);
-		margin: 0 2px;
-
-		:global(body.dark) & {
-			background: rgba(255, 255, 255, 0.12);
-		}
-	}
-
-	.action-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 24px;
-		background: none;
-		border: none;
-		color: #6e6e73;
-		border-radius: 4px;
-		cursor: pointer;
-		padding: 0;
-
-		&:hover {
-			background: rgba(0, 0, 0, 0.06);
-		}
-
-		:global(body.dark) & {
-			color: #8e8e93;
-
-			&:hover {
-				background: rgba(255, 255, 255, 0.08);
-			}
-		}
-	}
-
-	.search-wrapper {
-		position: relative;
-		display: flex;
-		align-items: center;
-	}
-
-	.search-icon {
-		position: absolute;
-		left: 6px;
-		color: #8e8e93;
-		pointer-events: none;
-	}
-
-	.search-input {
-		width: 140px;
-		height: 22px;
-		padding: 0 6px 0 22px;
-		border: none;
-		border-radius: 5px;
-		background: rgba(0, 0, 0, 0.06);
-		font-size: 12px;
-		color: var(--system-color-light-contrast);
-		outline: none;
-		font-family: inherit;
-
-		&::placeholder {
-			color: #8e8e93;
-		}
-
-		&:focus {
-			background: rgba(0, 0, 0, 0.08);
-			box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3);
-		}
-
-		:global(body.dark) & {
-			background: rgba(255, 255, 255, 0.08);
-
-			&:focus {
-				background: rgba(255, 255, 255, 0.1);
-			}
-		}
-	}
-
-	/* ===== Path bar / breadcrumb ===== */
-	.path-bar {
-		display: flex;
-		align-items: center;
-		padding: 4px 12px;
-		background: rgba(0, 0, 0, 0.02);
-		border-bottom: 1px solid #d1d1d6;
-		min-height: 24px;
 		gap: 2px;
-		overflow-x: auto;
-
-		:global(body.dark) & {
-			background: rgba(255, 255, 255, 0.02);
-			border-bottom-color: #38383a;
-		}
+		min-width: 0;
+		overflow: hidden;
 	}
 
-	.path-separator {
+	.title-separator {
 		display: flex;
 		align-items: center;
 		color: #8e8e93;
 		flex-shrink: 0;
 	}
 
-	.path-segment {
+	.title-segment {
 		background: none;
 		border: none;
 		padding: 2px 6px;
 		border-radius: 4px;
 		cursor: pointer;
-		font-size: 12px;
+		font-size: 13px;
 		color: #636366;
 		white-space: nowrap;
 		font-family: inherit;
+		font-weight: 400;
+		overflow: hidden;
+		text-overflow: ellipsis;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.06);
@@ -1230,6 +1287,155 @@
 		}
 	}
 
+	.toolbar-right {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.view-buttons {
+		display: flex;
+		background: rgba(0, 0, 0, 0.06);
+		border-radius: 6px;
+		padding: 2px;
+		gap: 1px;
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.08);
+		}
+	}
+
+	.view-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 22px;
+		background: none;
+		border: none;
+		color: #6e6e73;
+		border-radius: 4px;
+		cursor: pointer;
+		padding: 0;
+
+		&.active {
+			background: white;
+			color: #1c1c1e;
+			box-shadow: 0 0.5px 2px rgba(0,0,0,0.12), 0 0 0.5px rgba(0,0,0,0.08);
+		}
+
+		&:hover:not(.active) {
+			color: #3c3c3e;
+		}
+
+		:global(body.dark) & {
+			color: #8e8e93;
+
+			&.active {
+				background: #5a5a5c;
+				color: white;
+				box-shadow: 0 0.5px 2px rgba(0,0,0,0.3);
+			}
+
+			&:hover:not(.active) {
+				color: #c7c7cc;
+			}
+		}
+	}
+
+	.toolbar-separator {
+		width: 1px;
+		height: 18px;
+		background: rgba(0, 0, 0, 0.1);
+		margin: 0 4px;
+		flex-shrink: 0;
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.1);
+		}
+	}
+
+	.action-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 24px;
+		background: none;
+		border: none;
+		color: #6e6e73;
+		border-radius: 4px;
+		cursor: pointer;
+		padding: 0;
+
+		&:hover {
+			background: rgba(0, 0, 0, 0.06);
+			color: #3c3c3e;
+		}
+
+		&:active {
+			background: rgba(0, 0, 0, 0.1);
+		}
+
+		:global(body.dark) & {
+			color: #8e8e93;
+
+			&:hover {
+				background: rgba(255, 255, 255, 0.08);
+				color: #c7c7cc;
+			}
+
+			&:active {
+				background: rgba(255, 255, 255, 0.12);
+			}
+		}
+	}
+
+	.search-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+	}
+
+	.search-icon {
+		position: absolute;
+		left: 7px;
+		color: #8e8e93;
+		pointer-events: none;
+	}
+
+	.search-input {
+		width: 140px;
+		height: 24px;
+		padding: 0 8px 0 24px;
+		border: none;
+		border-radius: 6px;
+		background: rgba(0, 0, 0, 0.06);
+		font-size: 12px;
+		color: var(--system-color-light-contrast);
+		outline: none;
+		font-family: inherit;
+
+		&::placeholder {
+			color: #8e8e93;
+		}
+
+		&:focus {
+			background: rgba(0, 0, 0, 0.08);
+			box-shadow: 0 0 0 2.5px rgba(0, 122, 255, 0.35);
+		}
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.08);
+
+			&:focus {
+				background: rgba(255, 255, 255, 0.1);
+				box-shadow: 0 0 0 2.5px rgba(10, 132, 255, 0.4);
+			}
+		}
+	}
+
 	/* ===== Main layout ===== */
 	.main {
 		display: flex;
@@ -1239,21 +1445,22 @@
 
 	/* ===== Sidebar ===== */
 	.sidebar {
-		width: 170px;
-		min-width: 170px;
-		background-color: #f2f2f7;
-		border-right: 1px solid #d1d1d6;
+		width: 200px;
+		min-width: 200px;
+		background-color: rgba(244, 244, 249, 0.92);
+		border-right: 0.5px solid #d1d1d6;
 		overflow-y: auto;
-		padding: 4px 0;
+		padding: 6px 0;
+		backdrop-filter: blur(20px);
 
 		:global(body.dark) & {
-			background-color: rgba(30, 30, 32, 0.95);
+			background-color: rgba(30, 30, 32, 0.88);
 			border-right-color: #38383a;
 		}
 	}
 
 	.sidebar-section {
-		margin-bottom: 4px;
+		margin-bottom: 8px;
 	}
 
 	.sidebar-section-title {
@@ -1261,41 +1468,43 @@
 		font-weight: 700;
 		color: #86868b;
 		text-transform: uppercase;
-		padding: 6px 14px 2px;
+		padding: 8px 16px 4px;
 		letter-spacing: 0.3px;
 	}
 
 	.sidebar-item {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		width: calc(100% - 12px);
-		margin: 0 6px;
+		gap: 7px;
+		width: calc(100% - 16px);
+		margin: 0 8px;
 		padding: 3px 8px;
+		height: 22px;
 		border: none;
 		background: none;
 		font-size: 13px;
 		color: var(--system-color-light-contrast);
 		cursor: pointer;
 		text-align: left;
-		border-radius: 5px;
+		border-radius: 6px;
 		font-family: inherit;
 
-		&:hover {
-			background-color: rgba(0, 0, 0, 0.05);
+		&:hover:not(.active) {
+			background-color: rgba(0, 0, 0, 0.04);
 		}
 
 		&.active {
-			background-color: #007aff;
-			color: white;
+			background-color: rgba(0, 122, 255, 0.18);
+			color: var(--system-color-light-contrast);
 		}
 
-		:global(body.dark) &:hover {
+		:global(body.dark) &:hover:not(.active) {
 			background-color: rgba(255, 255, 255, 0.06);
 		}
 
 		:global(body.dark) &.active {
-			background-color: #0a84ff;
+			background-color: rgba(10, 132, 255, 0.25);
+			color: white;
 		}
 	}
 
@@ -1306,10 +1515,23 @@
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
+		color: #007aff;
 
 		:global(svg) {
 			width: 14px;
 			height: 14px;
+		}
+
+		:global(body.dark) & {
+			color: #0a84ff;
+		}
+	}
+
+	.sidebar-icon.icon-active {
+		color: #007aff;
+
+		:global(body.dark) & {
+			color: #0a84ff;
 		}
 	}
 
@@ -1317,6 +1539,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		line-height: 1;
 	}
 
 	.tag-item {
@@ -1337,31 +1560,39 @@
 		flex-direction: column;
 		overflow: hidden;
 		position: relative;
+		background: white;
+
+		:global(body.dark) & {
+			background: #1e1e20;
+		}
 	}
 
 	/* ===== List view ===== */
 	.column-headers {
 		display: flex;
 		padding: 0 12px;
-		border-bottom: 1px solid #d1d1d6;
+		border-bottom: 0.5px solid #d8d8dc;
 		font-size: 11px;
 		font-weight: 500;
 		color: #86868b;
-		background-color: rgba(0, 0, 0, 0.02);
-		min-height: 22px;
+		background-color: #f6f6f6;
+		min-height: 24px;
+		flex-shrink: 0;
 
 		:global(body.dark) & {
 			border-bottom-color: #38383a;
-			background-color: rgba(255, 255, 255, 0.02);
+			background-color: #2a2a2c;
+			color: #8e8e93;
 		}
 	}
 
 	.col-header {
 		display: flex;
 		align-items: center;
+		gap: 4px;
 		background: none;
 		border: none;
-		border-right: 1px solid rgba(0, 0, 0, 0.08);
+		border-right: 0.5px solid rgba(0, 0, 0, 0.08);
 		padding: 3px 8px;
 		font-size: 11px;
 		font-weight: 500;
@@ -1375,18 +1606,28 @@
 		}
 
 		&:hover {
-			color: #4a4a4a;
+			color: #4a4a4c;
 			background: rgba(0, 0, 0, 0.03);
 		}
 
 		:global(body.dark) & {
 			border-right-color: rgba(255, 255, 255, 0.06);
+			color: #8e8e93;
 
 			&:hover {
-				color: #ccc;
+				color: #c7c7cc;
 				background: rgba(255, 255, 255, 0.03);
 			}
 		}
+	}
+
+	.sort-chevron {
+		flex-shrink: 0;
+		transition: transform 0.15s ease;
+	}
+
+	.sort-chevron.desc {
+		transform: rotate(180deg);
 	}
 
 	.col-name {
@@ -1398,7 +1639,7 @@
 	}
 
 	.col-modified {
-		flex: 1;
+		flex: 1.2;
 		min-width: 0;
 	}
 
@@ -1424,36 +1665,52 @@
 
 	.file-row {
 		display: flex;
-		padding: 2px 12px;
-		background: none;
+		padding: 0 12px;
+		background: transparent;
 		width: 100%;
 		font-size: 13px;
 		color: var(--system-color-light-contrast);
 		cursor: default;
 		text-align: left;
 		align-items: center;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+		height: 24px;
 		min-height: 24px;
 		outline: none;
+		border-bottom: none;
+
+		&.even {
+			background-color: rgba(0, 0, 0, 0.02);
+		}
 
 		&:hover:not(.selected) {
-			background-color: rgba(0, 0, 0, 0.03);
+			background-color: rgba(0, 0, 0, 0.04);
 		}
 
 		&.selected {
-			background-color: #007aff;
-			color: white;
+			background-color: rgba(0, 122, 255, 0.15);
+			color: var(--system-color-light-contrast);
+		}
+
+		&.selected.focused {
+			background-color: rgba(0, 122, 255, 0.22);
 		}
 
 		:global(body.dark) & {
-			border-bottom-color: rgba(255, 255, 255, 0.04);
+			&.even {
+				background-color: rgba(255, 255, 255, 0.02);
+			}
 
 			&:hover:not(.selected) {
 				background-color: rgba(255, 255, 255, 0.04);
 			}
 
 			&.selected {
-				background-color: #0a84ff;
+				background-color: rgba(10, 132, 255, 0.2);
+				color: white;
+			}
+
+			&.selected.focused {
+				background-color: rgba(10, 132, 255, 0.3);
 			}
 		}
 	}
@@ -1470,12 +1727,12 @@
 	}
 
 	.list-icon {
-		width: 18px;
-		height: 18px;
+		width: 16px;
+		height: 16px;
 
 		:global(svg) {
-			width: 18px;
-			height: 18px;
+			width: 16px;
+			height: 16px;
 		}
 	}
 
@@ -1489,7 +1746,7 @@
 	.rename-input {
 		background: white;
 		border: 2px solid #007aff;
-		border-radius: 3px;
+		border-radius: 4px;
 		padding: 1px 4px;
 		font-size: 13px;
 		font-family: inherit;
@@ -1497,6 +1754,13 @@
 		outline: none;
 		width: 200px;
 		min-width: 100px;
+		height: 20px;
+
+		:global(body.dark) & {
+			background: #2c2c2e;
+			border-color: #0a84ff;
+			color: white;
+		}
 	}
 
 	/* ===== Icon view ===== */
@@ -1505,8 +1769,8 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-content: flex-start;
-		gap: 4px;
-		padding: 16px;
+		gap: 2px;
+		padding: 16px 20px;
 		overflow-y: auto;
 	}
 
@@ -1514,9 +1778,9 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		width: 90px;
-		padding: 8px 4px;
-		border-radius: 6px;
+		width: 96px;
+		padding: 8px 4px 6px;
+		border-radius: 8px;
 		cursor: default;
 		outline: none;
 
@@ -1533,21 +1797,21 @@
 		}
 
 		:global(body.dark) &.selected {
-			background: rgba(10, 132, 255, 0.2);
+			background: rgba(10, 132, 255, 0.15);
 		}
 	}
 
 	.icon-image {
-		width: 56px;
-		height: 56px;
+		width: 64px;
+		height: 64px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		margin-bottom: 4px;
 
 		:global(svg) {
-			width: 52px;
-			height: 52px;
+			width: 60px;
+			height: 60px;
 		}
 	}
 
@@ -1555,14 +1819,14 @@
 		font-size: 11px;
 		text-align: center;
 		line-height: 1.3;
-		max-width: 84px;
+		max-width: 88px;
 		word-break: break-word;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 		padding: 1px 4px;
-		border-radius: 3px;
+		border-radius: 4px;
 	}
 
 	.selected-label {
@@ -1575,7 +1839,7 @@
 	}
 
 	.icon-rename {
-		width: 80px;
+		width: 84px;
 		text-align: center;
 		min-width: 60px;
 	}
@@ -1590,9 +1854,10 @@
 	.column-pane {
 		min-width: 220px;
 		max-width: 280px;
-		border-right: 1px solid #d1d1d6;
+		border-right: 0.5px solid #d8d8dc;
 		overflow-y: auto;
 		flex-shrink: 0;
+		padding: 2px 0;
 
 		:global(body.dark) & {
 			border-right-color: #38383a;
@@ -1603,22 +1868,29 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 3px 8px;
+		padding: 2px 8px;
+		margin: 0 4px;
 		cursor: default;
 		outline: none;
-		min-height: 22px;
+		height: 22px;
+		border-radius: 5px;
 
 		&:hover:not(.selected) {
 			background: rgba(0, 0, 0, 0.04);
 		}
 
 		&.selected {
-			background: #007aff;
-			color: white;
+			background: rgba(0, 122, 255, 0.18);
+			color: var(--system-color-light-contrast);
+		}
+
+		:global(body.dark) &:hover:not(.selected) {
+			background: rgba(255, 255, 255, 0.04);
 		}
 
 		:global(body.dark) &.selected {
-			background: #0a84ff;
+			background: rgba(10, 132, 255, 0.25);
+			color: white;
 		}
 	}
 
@@ -1638,7 +1910,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 12px;
+		font-size: 13px;
 	}
 
 	.column-arrow {
@@ -1649,7 +1921,11 @@
 	}
 
 	.column-row.selected .column-arrow {
-		color: white;
+		color: #007aff;
+
+		:global(body.dark) & {
+			color: #0a84ff;
+		}
 	}
 
 	.empty-column {
@@ -1658,7 +1934,7 @@
 		justify-content: center;
 		height: 100%;
 		color: #8e8e93;
-		font-size: 12px;
+		font-size: 13px;
 	}
 
 	.preview-column {
@@ -1667,17 +1943,17 @@
 		align-items: center;
 		padding: 24px 16px;
 		min-width: 200px;
-		background: rgba(0, 0, 0, 0.01);
+		background: rgba(0, 0, 0, 0.015);
 
 		:global(body.dark) & {
-			background: rgba(255, 255, 255, 0.01);
+			background: rgba(255, 255, 255, 0.015);
 		}
 	}
 
 	.preview-icon {
 		width: 64px;
 		height: 64px;
-		margin-bottom: 8px;
+		margin-bottom: 10px;
 
 		:global(svg) {
 			width: 64px;
@@ -1700,12 +1976,12 @@
 	.preview-detail-row {
 		display: flex;
 		justify-content: space-between;
-		padding: 3px 0;
+		padding: 4px 0;
 		font-size: 11px;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+		border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
 
 		:global(body.dark) & {
-			border-bottom-color: rgba(255, 255, 255, 0.05);
+			border-bottom-color: rgba(255, 255, 255, 0.06);
 		}
 	}
 
@@ -1772,9 +2048,9 @@
 		overflow-x: auto;
 		padding: 8px 12px;
 		gap: 6px;
-		border-top: 1px solid #d1d1d6;
+		border-top: 0.5px solid #d8d8dc;
 		background: rgba(0, 0, 0, 0.02);
-		min-height: 60px;
+		min-height: 64px;
 
 		:global(body.dark) & {
 			border-top-color: #38383a;
@@ -1783,13 +2059,13 @@
 	}
 
 	.gallery-thumb {
-		width: 48px;
-		height: 48px;
+		width: 52px;
+		height: 52px;
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 5px;
+		border-radius: 6px;
 		cursor: default;
 		outline: none;
 		border: 2px solid transparent;
@@ -1805,6 +2081,7 @@
 
 		:global(body.dark) &.selected {
 			border-color: #0a84ff;
+			background: rgba(10, 132, 255, 0.12);
 		}
 	}
 
@@ -1818,20 +2095,42 @@
 		}
 	}
 
+	/* ===== Drag selection ===== */
+	.drag-select-rect {
+		position: absolute;
+		border: 1px solid rgba(0, 122, 255, 0.5);
+		background: rgba(0, 122, 255, 0.08);
+		border-radius: 2px;
+		pointer-events: none;
+		z-index: 50;
+
+		:global(body.dark) & {
+			border-color: rgba(10, 132, 255, 0.5);
+			background: rgba(10, 132, 255, 0.1);
+		}
+	}
+
 	/* ===== Context menu ===== */
 	.context-menu {
 		position: absolute;
-		min-width: 200px;
+		min-width: 220px;
 		padding: 4px;
-		background: rgba(246, 246, 246, 0.95);
-		backdrop-filter: blur(20px);
-		border-radius: 6px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+		background: rgba(248, 248, 248, 0.92);
+		backdrop-filter: blur(25px) saturate(1.2);
+		-webkit-backdrop-filter: blur(25px) saturate(1.2);
+		border-radius: 8px;
+		box-shadow:
+			0 10px 40px rgba(0, 0, 0, 0.12),
+			0 2px 8px rgba(0, 0, 0, 0.08),
+			0 0 0 0.5px rgba(0, 0, 0, 0.12);
 		z-index: 100;
 
 		:global(body.dark) & {
-			background: rgba(44, 44, 46, 0.95);
-			box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+			background: rgba(44, 44, 46, 0.92);
+			box-shadow:
+				0 10px 40px rgba(0, 0, 0, 0.4),
+				0 2px 8px rgba(0, 0, 0, 0.3),
+				0 0 0 0.5px rgba(255, 255, 255, 0.12);
 		}
 	}
 
@@ -1840,7 +2139,7 @@
 		align-items: center;
 		justify-content: space-between;
 		width: 100%;
-		padding: 4px 10px;
+		padding: 4px 12px;
 		background: none;
 		border: none;
 		border-radius: 4px;
@@ -1850,14 +2149,24 @@
 		text-align: left;
 		font-family: inherit;
 		gap: 16px;
+		height: 24px;
 
 		&:hover {
 			background: #007aff;
 			color: white;
 		}
 
+		&.destructive:hover {
+			background: #ff3b30;
+			color: white;
+		}
+
 		:global(body.dark) &:hover {
 			background: #0a84ff;
+		}
+
+		:global(body.dark) &.destructive:hover {
+			background: #ff453a;
 		}
 	}
 
@@ -1876,9 +2185,9 @@
 	}
 
 	.ctx-divider {
-		height: 1px;
+		height: 0.5px;
 		background: rgba(0, 0, 0, 0.1);
-		margin: 4px 8px;
+		margin: 4px 10px;
 
 		:global(body.dark) & {
 			background: rgba(255, 255, 255, 0.1);
@@ -1891,25 +2200,43 @@
 		justify-content: center;
 		align-items: center;
 		height: 100%;
-		min-height: 120px;
+		min-height: 180px;
+		flex: 1;
+	}
+
+	.empty-folder-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.empty-folder-icon {
+		opacity: 0.6;
+	}
+
+	.empty-folder-text {
 		color: #86868b;
 		font-size: 14px;
-		flex: 1;
 	}
 
 	.status-bar {
 		display: flex;
 		justify-content: space-between;
-		padding: 3px 12px;
-		border-top: 1px solid #d1d1d6;
+		align-items: center;
+		padding: 0 16px;
+		border-top: 0.5px solid #d8d8dc;
 		font-size: 11px;
-		color: #86868b;
-		background: rgba(0, 0, 0, 0.01);
-		min-height: 18px;
+		color: #8e8e93;
+		background: #f6f6f6;
+		height: 22px;
+		min-height: 22px;
+		flex-shrink: 0;
 
 		:global(body.dark) & {
 			border-top-color: #38383a;
-			background: rgba(255, 255, 255, 0.01);
+			background: #2a2a2c;
+			color: #8e8e93;
 		}
 	}
 </style>

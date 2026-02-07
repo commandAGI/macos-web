@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	type Note = {
 		id: number;
 		title: string;
@@ -184,36 +186,66 @@
 	let search_query = $state('');
 	let sort_mode = $state<SortMode>('edited');
 	let show_sort_menu = $state(false);
+	let pending_new_note_focus = $state(false);
+
+	// Toolbar format active states
+	let fmt_bold = $state(false);
+	let fmt_italic = $state(false);
+	let fmt_underline = $state(false);
+	let fmt_strikethrough = $state(false);
+
+	// Reusable element for stripping HTML (avoids creating new DOM nodes every call)
+	let _strip_el: HTMLDivElement | null = null;
+
+	const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 	function format_date(timestamp: number): string {
-		const now_ts = Date.now();
+		const date = new Date(timestamp);
+		const today_start = new Date();
+		today_start.setHours(0, 0, 0, 0);
+		const yesterday_start = new Date(today_start);
+		yesterday_start.setDate(yesterday_start.getDate() - 1);
+		const week_start = new Date(today_start);
+		week_start.setDate(week_start.getDate() - 6);
+
+		if (timestamp >= today_start.getTime()) {
+			return 'Today ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+		} else if (timestamp >= yesterday_start.getTime()) {
+			return 'Yesterday';
+		} else if (timestamp >= week_start.getTime()) {
+			return DAYS[date.getDay()];
+		} else {
+			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+		}
+	}
+
+	function format_date_full(timestamp: number): string {
 		const date = new Date(timestamp);
 		const today_start = new Date();
 		today_start.setHours(0, 0, 0, 0);
 		const yesterday_start = new Date(today_start);
 		yesterday_start.setDate(yesterday_start.getDate() - 1);
 
+		const time_str = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 		if (timestamp >= today_start.getTime()) {
-			return 'Today ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+			return 'Today at ' + time_str;
 		} else if (timestamp >= yesterday_start.getTime()) {
-			return 'Yesterday';
+			return 'Yesterday at ' + time_str;
 		} else {
-			return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+			return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + ' at ' + time_str;
 		}
 	}
 
 	function strip_html(html: string): string {
-		const div = document.createElement('div');
-		div.innerHTML = html;
-		return div.textContent || div.innerText || '';
+		if (!_strip_el) _strip_el = document.createElement('div');
+		_strip_el.innerHTML = html;
+		return _strip_el.textContent || _strip_el.innerText || '';
 	}
 
 	function get_preview(body: string): string {
 		const text = strip_html(body);
 		return text.substring(0, 80).trim() || 'No additional text';
 	}
-
-	const all_folders = $derived([...system_folders, ...custom_folders]);
 
 	const filtered_notes = $derived.by(() => {
 		let result = notes.filter(n => {
@@ -250,6 +282,7 @@
 		return [...pinned, ...unpinned];
 	});
 
+	const has_pinned = $derived(filtered_notes.some(n => n.pinned));
 	const selected_note = $derived(notes.find(n => n.id === selected_note_id) ?? null);
 
 	const folder_counts = $derived.by(() => {
@@ -277,7 +310,7 @@
 			: selected_folder_id;
 		const new_note: Note = {
 			id: Date.now(),
-			title: 'New Note',
+			title: '',
 			body: '',
 			folder,
 			pinned: false,
@@ -287,14 +320,29 @@
 		};
 		notes = [new_note, ...notes];
 		selected_note_id = new_note.id;
+		pending_new_note_focus = true;
 	}
+
+	// Auto-focus title field when a new note is created
+	$effect(() => {
+		if (pending_new_note_focus && selected_note_id !== null) {
+			pending_new_note_focus = false;
+			tick().then(() => {
+				const title_el = document.querySelector('.editor-title') as HTMLElement;
+				title_el?.focus();
+			});
+		}
+	});
 
 	function delete_note(id: number) {
 		notes = notes.map(n =>
 			n.id === id ? { ...n, deleted_at: Date.now() } : n
 		);
-		const remaining = filtered_notes.filter(n => n.id !== id);
-		selected_note_id = remaining.length > 0 ? remaining[0].id : null;
+		// Select next note after deletion (computed filtered_notes will update)
+		tick().then(() => {
+			const remaining = filtered_notes.filter(n => n.id !== id);
+			selected_note_id = remaining.length > 0 ? remaining[0].id : null;
+		});
 	}
 
 	function restore_note(id: number) {
@@ -305,8 +353,10 @@
 
 	function permanently_delete_note(id: number) {
 		notes = notes.filter(n => n.id !== id);
-		const remaining = filtered_notes.filter(n => n.id !== id);
-		selected_note_id = remaining.length > 0 ? remaining[0].id : null;
+		tick().then(() => {
+			const remaining = filtered_notes;
+			selected_note_id = remaining.length > 0 ? remaining[0].id : null;
+		});
 	}
 
 	function toggle_pin(id: number) {
@@ -329,6 +379,7 @@
 
 	function exec_command(command: string, value?: string) {
 		document.execCommand(command, false, value);
+		update_format_state();
 	}
 
 	function insert_checklist() {
@@ -341,6 +392,17 @@
 
 	function insert_numbered_list() {
 		exec_command('insertOrderedList');
+	}
+
+	function update_format_state() {
+		try {
+			fmt_bold = document.queryCommandState('bold');
+			fmt_italic = document.queryCommandState('italic');
+			fmt_underline = document.queryCommandState('underline');
+			fmt_strikethrough = document.queryCommandState('strikeThrough');
+		} catch {
+			// queryCommandState can throw in some edge cases
+		}
 	}
 
 	function handle_editor_input(e: Event) {
@@ -365,12 +427,40 @@
 		}
 	}
 
+	function handle_editor_keyup() {
+		update_format_state();
+	}
+
+	function handle_editor_mouseup() {
+		update_format_state();
+	}
+
+	// Handle checkbox clicks inside contenteditable
+	function handle_editor_click(e: MouseEvent) {
+		const target = e.target as HTMLElement;
+		if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+			// Allow the checkbox to toggle, then save
+			setTimeout(() => {
+				const body_el = document.querySelector('.editor-body') as HTMLElement;
+				if (body_el && selected_note_id !== null) {
+					update_note_body(selected_note_id, body_el.innerHTML);
+				}
+			}, 0);
+		}
+		update_format_state();
+	}
+
 	// Close sort menu on outside click
 	function handle_global_click(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('.sort-container')) {
 			show_sort_menu = false;
 		}
+	}
+
+	// Track format state on selection change
+	function handle_selection_change() {
+		update_format_state();
 	}
 
 	const sort_label = $derived(
@@ -382,18 +472,19 @@
 </script>
 
 <svelte:window onclick={handle_global_click} />
+<svelte:document onselectionchange={handle_selection_change} />
 
 <section class="container">
 	<header class="app-window-drag-handle titlebar">
 		<div class="toolbar-left">
-			<button class="toolbar-btn" onclick={create_note} title="New Note">
+			<button class="toolbar-btn" onclick={create_note} title="New Note" aria-label="New Note">
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
 					<rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/>
 					<path d="M8 5v6M5 8h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 				</svg>
 			</button>
 			{#if selected_note && !is_deleted_folder}
-				<button class="toolbar-btn" onclick={() => delete_note(selected_note.id)} title="Delete Note">
+				<button class="toolbar-btn" onclick={() => delete_note(selected_note.id)} title="Delete Note" aria-label="Delete Note">
 					<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
 						<path d="M4 5h8l-.5 8.5a1 1 0 01-1 .5H5.5a1 1 0 01-1-.5L4 5z" stroke="currentColor" stroke-width="1.2"/>
 						<path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -414,15 +505,15 @@
 				{#if show_sort_menu}
 					<div class="sort-dropdown">
 						<button class="sort-option" class:active={sort_mode === 'edited'} onclick={() => { sort_mode = 'edited'; show_sort_menu = false; }}>
-							{#if sort_mode === 'edited'}<span class="check-mark">&#10003;</span>{/if}
+							<span class="check-col">{sort_mode === 'edited' ? '\u2713' : ''}</span>
 							Date Edited
 						</button>
 						<button class="sort-option" class:active={sort_mode === 'created'} onclick={() => { sort_mode = 'created'; show_sort_menu = false; }}>
-							{#if sort_mode === 'created'}<span class="check-mark">&#10003;</span>{/if}
+							<span class="check-col">{sort_mode === 'created' ? '\u2713' : ''}</span>
 							Date Created
 						</button>
 						<button class="sort-option" class:active={sort_mode === 'title'} onclick={() => { sort_mode = 'title'; show_sort_menu = false; }}>
-							{#if sort_mode === 'title'}<span class="check-mark">&#10003;</span>{/if}
+							<span class="check-col">{sort_mode === 'title' ? '\u2713' : ''}</span>
 							Title
 						</button>
 					</div>
@@ -442,7 +533,7 @@
 						class:active={selected_folder_id === folder.id}
 						onclick={() => { selected_folder_id = folder.id; }}
 					>
-						<span class="folder-icon">
+						<span class="folder-icon" class:trash-icon={folder.icon === 'trash'}>
 							{#if folder.icon === 'icloud'}
 								<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
 									<path d="M4.5 12C2.567 12 1 10.433 1 8.5c0-1.657 1.153-3.044 2.7-3.4A4.5 4.5 0 018 2c2.067 0 3.813 1.393 4.336 3.293A3.5 3.5 0 0112.5 12h-8z" stroke="currentColor" stroke-width="1.1"/>
@@ -475,9 +566,9 @@
 						class:active={selected_folder_id === folder.id}
 						onclick={() => { selected_folder_id = folder.id; }}
 					>
-						<span class="folder-icon">
+						<span class="folder-icon folder-type">
 							<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-								<path d="M1.5 4.5V12a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H8L6.5 3H3A1.5 1.5 0 001.5 4.5z" stroke="currentColor" stroke-width="1.1"/>
+								<path d="M1.5 4.5V12a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H8L6.5 3H3A1.5 1.5 0 001.5 4.5z" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1.1"/>
 							</svg>
 						</span>
 						<span class="folder-name">{folder.name}</span>
@@ -503,7 +594,7 @@
 						bind:value={search_query}
 					/>
 					{#if search_query}
-						<button class="search-clear" onclick={() => search_query = ''}>
+						<button class="search-clear" onclick={() => search_query = ''} aria-label="Clear search">
 							<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
 								<circle cx="6" cy="6" r="5.5" fill="currentColor" opacity="0.3"/>
 								<path d="M4 4l4 4M8 4l-4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -515,12 +606,18 @@
 
 			<div class="note-list">
 				{#if filtered_notes.length === 0}
-					<div class="empty-state">No Notes</div>
+					<div class="empty-state">
+						<svg width="36" height="36" viewBox="0 0 36 36" fill="none" opacity="0.25">
+							<rect x="6" y="3" width="24" height="30" rx="3" stroke="currentColor" stroke-width="1.5"/>
+							<path d="M12 12h12M12 17h12M12 22h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+						</svg>
+						<span>No Notes</span>
+					</div>
 				{/if}
 				{#each filtered_notes as note, i}
 					{#if note.pinned && (i === 0 || !filtered_notes[i - 1].pinned)}
 						<div class="list-section-header">
-							<svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+							<svg width="9" height="9" viewBox="0 0 10 10" fill="none">
 								<path d="M5 1L6.5 4L5 7L5 9.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
 								<circle cx="5" cy="2.5" r="1.5" stroke="currentColor" stroke-width="0.8"/>
 							</svg>
@@ -528,7 +625,9 @@
 						</div>
 					{/if}
 					{#if !note.pinned && (i === 0 || filtered_notes[i - 1].pinned)}
-						<div class="list-section-header">Notes</div>
+						<div class="list-section-header">
+							{has_pinned ? 'Notes' : ''}
+						</div>
 					{/if}
 					<button
 						class="note-card"
@@ -537,13 +636,7 @@
 						oncontextmenu={(e) => { e.preventDefault(); toggle_pin(note.id); }}
 					>
 						<div class="note-card-title">
-							{#if note.pinned}
-								<svg class="pin-icon" width="10" height="10" viewBox="0 0 10 10" fill="none">
-									<path d="M5 1L6.5 4L5 7L5 9.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-									<circle cx="5" cy="2.5" r="1.5" stroke="currentColor" stroke-width="0.8"/>
-								</svg>
-							{/if}
-							{note.title}
+							{note.title || 'New Note'}
 						</div>
 						<div class="note-card-meta">
 							<span class="note-card-date">{format_date(note.updated_at)}</span>
@@ -570,22 +663,22 @@
 				{:else}
 					<div class="editor-toolbar">
 						<div class="format-group">
-							<button class="format-btn" onclick={() => exec_command('bold')} title="Bold">
+							<button class="format-btn" class:fmt-active={fmt_bold} onclick={() => exec_command('bold')} title="Bold">
 								<strong>B</strong>
 							</button>
-							<button class="format-btn" onclick={() => exec_command('italic')} title="Italic">
+							<button class="format-btn" class:fmt-active={fmt_italic} onclick={() => exec_command('italic')} title="Italic">
 								<em>I</em>
 							</button>
-							<button class="format-btn" onclick={() => exec_command('underline')} title="Underline">
+							<button class="format-btn" class:fmt-active={fmt_underline} onclick={() => exec_command('underline')} title="Underline">
 								<span style="text-decoration: underline;">U</span>
 							</button>
-							<button class="format-btn" onclick={() => exec_command('strikeThrough')} title="Strikethrough">
+							<button class="format-btn" class:fmt-active={fmt_strikethrough} onclick={() => exec_command('strikeThrough')} title="Strikethrough">
 								<span style="text-decoration: line-through;">S</span>
 							</button>
 						</div>
 						<div class="format-divider"></div>
 						<div class="format-group">
-							<button class="format-btn" onclick={insert_bullet_list} title="Bullet List">
+							<button class="format-btn" onclick={insert_bullet_list} title="Bullet List" aria-label="Bullet List">
 								<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
 									<circle cx="3" cy="4" r="1.2" fill="currentColor"/>
 									<circle cx="3" cy="8" r="1.2" fill="currentColor"/>
@@ -601,7 +694,7 @@
 									<path d="M6 4h8M6 8h8M6 12h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 								</svg>
 							</button>
-							<button class="format-btn" onclick={insert_checklist} title="Checklist">
+							<button class="format-btn" onclick={insert_checklist} title="Checklist" aria-label="Checklist">
 								<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
 									<rect x="1" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1"/>
 									<path d="M2.5 4.5l1 1 2-2" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -617,6 +710,7 @@
 								class:pinned={selected_note.pinned}
 								onclick={() => toggle_pin(selected_note.id)}
 								title={selected_note.pinned ? 'Unpin Note' : 'Pin Note'}
+								aria-label={selected_note.pinned ? 'Unpin Note' : 'Pin Note'}
 							>
 								<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
 									<path d="M7 1L9 5L7 9.5L7 13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -628,7 +722,7 @@
 				{/if}
 
 				<div class="editor-content">
-					<div class="editor-date-line">{format_date(selected_note.updated_at)}</div>
+					<div class="editor-date-line">{format_date_full(selected_note.updated_at)}</div>
 					{#key selected_note_id}
 						<div
 							class="editor-title"
@@ -638,18 +732,22 @@
 							oninput={handle_title_input}
 							onkeydown={handle_title_keydown}
 						>{selected_note.title}</div>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="editor-body"
 							contenteditable={!is_deleted_folder}
 							role="textbox"
 							tabindex="0"
 							oninput={handle_editor_input}
+							onkeyup={handle_editor_keyup}
+							onmouseup={handle_editor_mouseup}
+							onclick={handle_editor_click}
 						>{@html selected_note.body}</div>
 					{/key}
 				</div>
 			{:else}
 				<div class="no-selection">
-					<svg width="48" height="48" viewBox="0 0 48 48" fill="none" opacity="0.3">
+					<svg width="48" height="48" viewBox="0 0 48 48" fill="none" opacity="0.2">
 						<rect x="8" y="4" width="32" height="40" rx="4" stroke="currentColor" stroke-width="2"/>
 						<path d="M16 16h16M16 22h16M16 28h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
 					</svg>
@@ -672,6 +770,7 @@
 		font-family: var(--system-font-family);
 		color: var(--system-color-light-contrast);
 		font-size: 13px;
+		-webkit-font-smoothing: antialiased;
 	}
 
 	/* ===== Titlebar / Toolbar ===== */
@@ -682,7 +781,7 @@
 		padding: 6px 12px;
 		min-height: 38px;
 		background: linear-gradient(to bottom, #f6f6f6, #ebebeb);
-		border-bottom: 1px solid #c8c8c8;
+		border-bottom: 0.5px solid #c8c8c8;
 
 		:global(body.dark) & {
 			background: linear-gradient(to bottom, #3a3a3c, #2c2c2e);
@@ -711,6 +810,7 @@
 		align-items: center;
 		gap: 4px;
 		font-size: 12px;
+		transition: background 0.1s ease;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.06);
@@ -739,9 +839,9 @@
 		right: 0;
 		margin-top: 4px;
 		background: white;
-		border: 1px solid #d1d1d6;
+		border: 0.5px solid #d1d1d6;
 		border-radius: 6px;
-		box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+		box-shadow: 0 4px 16px rgba(0,0,0,0.14), 0 0 0 0.5px rgba(0,0,0,0.05);
 		padding: 4px;
 		z-index: 100;
 		min-width: 160px;
@@ -749,15 +849,16 @@
 		:global(body.dark) & {
 			background: #2c2c2e;
 			border-color: #48484a;
+			box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 		}
 	}
 
 	.sort-option {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 4px;
 		width: 100%;
-		padding: 6px 10px;
+		padding: 5px 8px;
 		border: none;
 		background: none;
 		font-size: 13px;
@@ -772,13 +873,15 @@
 		}
 	}
 
-	.check-mark {
+	.check-col {
+		width: 16px;
+		text-align: center;
 		font-size: 12px;
 		color: #007aff;
-		width: 14px;
+		flex-shrink: 0;
 	}
 
-	.sort-option:hover .check-mark {
+	.sort-option:hover .check-col {
 		color: white;
 	}
 
@@ -791,10 +894,10 @@
 
 	/* ===== Column 1: Folder Sidebar ===== */
 	.folder-sidebar {
-		width: 170px;
-		min-width: 170px;
+		width: 180px;
+		min-width: 180px;
 		background: #f2f2f7;
-		border-right: 1px solid #d1d1d6;
+		border-right: 0.5px solid #d1d1d6;
 		padding: 4px 0;
 		overflow-y: auto;
 		display: flex;
@@ -807,7 +910,7 @@
 	}
 
 	.folder-section {
-		padding: 4px 0;
+		padding: 2px 0;
 	}
 
 	.folder-section-label {
@@ -817,6 +920,7 @@
 		text-transform: uppercase;
 		letter-spacing: 0.3px;
 		padding: 8px 14px 4px;
+		user-select: none;
 	}
 
 	.folder-item {
@@ -824,24 +928,25 @@
 		align-items: center;
 		gap: 7px;
 		width: 100%;
-		padding: 5px 14px;
+		padding: 4px 14px;
 		border: none;
 		background: none;
 		font-size: 13px;
 		color: var(--system-color-light-contrast);
 		cursor: pointer;
 		text-align: left;
+		transition: background 0.12s ease;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.04);
 		}
 
 		&.active {
-			background: #ffd60a;
-			color: #1c1c1e;
+			background: rgba(0, 122, 255, 0.12);
+			color: #007aff;
 			border-radius: 6px;
 			margin: 0 6px;
-			padding: 5px 8px;
+			padding: 4px 8px;
 			width: calc(100% - 12px);
 		}
 
@@ -851,8 +956,8 @@
 			}
 
 			&.active {
-				background: #ffd60a;
-				color: #1c1c1e;
+				background: rgba(10, 132, 255, 0.2);
+				color: #0a84ff;
 			}
 		}
 	}
@@ -864,11 +969,31 @@
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
-		color: #ffa500;
+		color: #f5a623;
+	}
+
+	.folder-icon.trash-icon {
+		color: #86868b;
+	}
+
+	.folder-icon.folder-type {
+		color: #f5a623;
 	}
 
 	.folder-item.active .folder-icon {
-		color: #1c1c1e;
+		color: #007aff;
+	}
+
+	.folder-item.active .folder-icon.trash-icon {
+		color: #007aff;
+	}
+
+	:global(body.dark) .folder-item.active .folder-icon {
+		color: #0a84ff;
+	}
+
+	:global(body.dark) .folder-item.active .folder-icon.trash-icon {
+		color: #0a84ff;
 	}
 
 	.folder-name {
@@ -879,20 +1004,30 @@
 		white-space: nowrap;
 	}
 
+	.folder-item.active .folder-name {
+		font-weight: 500;
+	}
+
 	.folder-count {
 		font-size: 12px;
 		color: #86868b;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.folder-item.active .folder-count {
-		color: rgba(28, 28, 30, 0.5);
+		color: #007aff;
+		opacity: 0.7;
+	}
+
+	:global(body.dark) .folder-item.active .folder-count {
+		color: #0a84ff;
 	}
 
 	/* ===== Column 2: Note List ===== */
 	.note-list-panel {
-		width: 250px;
-		min-width: 250px;
-		border-right: 1px solid #d1d1d6;
+		width: 260px;
+		min-width: 260px;
+		border-right: 0.5px solid #d1d1d6;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
@@ -905,7 +1040,7 @@
 	}
 
 	.note-list-header {
-		padding: 8px;
+		padding: 8px 10px;
 	}
 
 	.search-bar {
@@ -928,6 +1063,7 @@
 			color: var(--system-color-light-contrast);
 			outline: none;
 			min-width: 0;
+			font-family: inherit;
 
 			&::placeholder {
 				color: #86868b;
@@ -953,6 +1089,7 @@
 	.note-list {
 		flex: 1;
 		overflow-y: auto;
+		padding: 0 4px;
 	}
 
 	.list-section-header {
@@ -961,33 +1098,35 @@
 		color: #86868b;
 		text-transform: uppercase;
 		letter-spacing: 0.3px;
-		padding: 10px 12px 4px;
+		padding: 10px 10px 4px;
 		display: flex;
 		align-items: center;
 		gap: 4px;
+		user-select: none;
+		min-height: 12px;
 	}
 
 	.note-card {
 		width: 100%;
-		padding: 8px 12px;
+		padding: 8px 10px;
 		border: none;
 		background: none;
 		cursor: pointer;
 		text-align: left;
 		color: var(--system-color-light-contrast);
-		border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+		border-bottom: 0.5px solid rgba(0, 0, 0, 0.07);
 		display: block;
+		border-radius: 6px;
+		margin: 1px 0;
+		transition: background 0.12s ease;
 
 		&:hover {
-			background: rgba(255, 214, 10, 0.08);
+			background: rgba(0, 0, 0, 0.04);
 		}
 
 		&.active {
 			background: #ffd60a;
 			color: #1c1c1e;
-			border-radius: 6px;
-			margin: 0 6px;
-			width: calc(100% - 12px);
 			border-bottom-color: transparent;
 		}
 
@@ -996,7 +1135,7 @@
 			color: #e5e5e7;
 
 			&:hover {
-				background: rgba(255, 214, 10, 0.06);
+				background: rgba(255, 255, 255, 0.04);
 			}
 
 			&.active {
@@ -1018,19 +1157,10 @@
 		gap: 4px;
 	}
 
-	.pin-icon {
-		color: #ffa500;
-		flex-shrink: 0;
-	}
-
-	.note-card.active .pin-icon {
-		color: #1c1c1e;
-	}
-
 	.note-card-meta {
 		display: flex;
 		gap: 6px;
-		font-size: 12px;
+		font-size: 11.5px;
 		color: #86868b;
 		line-height: 1.4;
 	}
@@ -1056,7 +1186,8 @@
 		font-size: 11px;
 		color: #86868b;
 		text-align: center;
-		border-top: 1px solid rgba(0, 0, 0, 0.06);
+		border-top: 0.5px solid rgba(0, 0, 0, 0.07);
+		font-variant-numeric: tabular-nums;
 
 		:global(body.dark) & {
 			border-top-color: rgba(255, 255, 255, 0.04);
@@ -1065,12 +1196,14 @@
 
 	.empty-state {
 		display: flex;
+		flex-direction: column;
 		justify-content: center;
 		align-items: center;
 		height: 100%;
 		color: #86868b;
-		font-size: 13px;
+		font-size: 14px;
 		padding: 40px 0;
+		gap: 10px;
 	}
 
 	/* ===== Column 3: Editor ===== */
@@ -1079,11 +1212,11 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		background: #fffef5;
+		background: #fefefe;
 		min-width: 0;
 
 		:global(body.dark) & {
-			background: #2c2c2e;
+			background: #1e1e1e;
 		}
 	}
 
@@ -1093,7 +1226,7 @@
 		gap: 8px;
 		padding: 8px 16px;
 		background: #fff3cd;
-		border-bottom: 1px solid #e6d9a0;
+		border-bottom: 0.5px solid #e6d9a0;
 		font-size: 12px;
 		color: #664d03;
 
@@ -1109,7 +1242,7 @@
 	}
 
 	.restore-btn {
-		padding: 3px 10px;
+		padding: 4px 12px;
 		border: none;
 		border-radius: 4px;
 		background: #007aff;
@@ -1122,7 +1255,7 @@
 	}
 
 	.perm-delete-btn {
-		padding: 3px 10px;
+		padding: 4px 12px;
 		border: none;
 		border-radius: 4px;
 		background: #ff3b30;
@@ -1137,15 +1270,15 @@
 	.editor-toolbar {
 		display: flex;
 		align-items: center;
-		padding: 4px 12px;
+		padding: 4px 16px;
 		gap: 2px;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-		background: rgba(255, 254, 245, 0.9);
-		min-height: 32px;
+		border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+		background: #fafafa;
+		min-height: 34px;
 
 		:global(body.dark) & {
 			border-bottom-color: rgba(255, 255, 255, 0.06);
-			background: rgba(44, 44, 46, 0.9);
+			background: #252525;
 		}
 	}
 
@@ -1167,6 +1300,7 @@
 		justify-content: center;
 		min-width: 26px;
 		height: 26px;
+		transition: background 0.1s ease, color 0.1s ease;
 
 		&:hover {
 			background: rgba(0, 0, 0, 0.07);
@@ -1189,15 +1323,29 @@
 		}
 	}
 
+	.format-btn.fmt-active {
+		background: rgba(0, 0, 0, 0.1);
+		color: #1c1c1e;
+	}
+
+	:global(body.dark) .format-btn.fmt-active {
+		background: rgba(255, 255, 255, 0.15);
+		color: #ffffff;
+	}
+
 	.pin-btn.pinned {
-		color: #ffa500;
+		color: #f5a623;
+	}
+
+	:global(body.dark) .pin-btn.pinned {
+		color: #f5a623;
 	}
 
 	.format-divider {
 		width: 1px;
 		height: 18px;
 		background: rgba(0, 0, 0, 0.1);
-		margin: 0 4px;
+		margin: 0 5px;
 
 		:global(body.dark) & {
 			background: rgba(255, 255, 255, 0.1);
@@ -1207,39 +1355,41 @@
 	.editor-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 12px 20px 40px;
+		padding: 16px 24px 48px;
 	}
 
 	.editor-date-line {
 		font-size: 12px;
-		color: #86868b;
+		color: #aeaeb2;
 		text-align: center;
-		margin-bottom: 12px;
+		margin-bottom: 16px;
 	}
 
 	.editor-title {
-		font-size: 22px;
+		font-size: 24px;
 		font-weight: 700;
-		line-height: 1.3;
+		line-height: 1.25;
 		margin-bottom: 8px;
 		outline: none;
 		color: var(--system-color-light-contrast);
 		border: none;
-		min-height: 30px;
+		min-height: 32px;
 		word-break: break-word;
+		letter-spacing: -0.2px;
 	}
 
 	.editor-title:empty::before {
 		content: 'Title';
 		color: #c7c7cc;
+		font-weight: 700;
 	}
 
 	.editor-body {
-		font-size: 14px;
-		line-height: 1.65;
+		font-size: 15px;
+		line-height: 1.7;
 		outline: none;
 		color: var(--system-color-light-contrast);
-		min-height: 100px;
+		min-height: 120px;
 		word-break: break-word;
 	}
 
@@ -1259,20 +1409,21 @@
 	.editor-body :global(.checklist label) {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: 8px;
 		cursor: pointer;
 	}
 
 	.editor-body :global(.checklist input[type="checkbox"]) {
 		width: 16px;
 		height: 16px;
-		accent-color: #ffa500;
+		accent-color: #f5a623;
 		cursor: pointer;
 		flex-shrink: 0;
+		border-radius: 3px;
 	}
 
 	.editor-body :global(ul), .editor-body :global(ol) {
-		padding-left: 20px;
+		padding-left: 22px;
 		margin: 4px 0;
 	}
 
@@ -1282,14 +1433,18 @@
 
 	.editor-body :global(code) {
 		background: rgba(0, 0, 0, 0.06);
-		padding: 1px 5px;
-		border-radius: 3px;
+		padding: 2px 6px;
+		border-radius: 4px;
 		font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
-		font-size: 12px;
+		font-size: 13px;
 
 		:global(body.dark) & {
 			background: rgba(255, 255, 255, 0.1);
 		}
+	}
+
+	.editor-body :global(i), .editor-body :global(em) {
+		font-style: italic;
 	}
 
 	.no-selection {
@@ -1299,7 +1454,8 @@
 		align-items: center;
 		height: 100%;
 		gap: 12px;
-		color: #86868b;
+		color: #aeaeb2;
 		font-size: 15px;
+		user-select: none;
 	}
 </style>

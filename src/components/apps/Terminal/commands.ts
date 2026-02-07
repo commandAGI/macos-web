@@ -6,7 +6,6 @@ import {
 	get_parent_dir,
 	format_size,
 	format_date_short,
-	display_path,
 } from './virtual-fs';
 
 // ANSI-style color tags that get rendered as HTML spans
@@ -38,7 +37,7 @@ function cmd_ls(args: string[], state: TerminalState): CommandResult {
 	// Find path argument (non-flag)
 	const path_arg = args.find(a => !a.startsWith('-')) || '.';
 	const target = path_arg === '.' ? state.cwd : path_arg;
-	const { node, absolute_path } = resolve_path(state.fs_root, state.cwd, target);
+	const { node } = resolve_path(state.fs_root, state.cwd, target);
 
 	if (!node) {
 		return { lines: [`ls: ${path_arg}: No such file or directory`] };
@@ -113,7 +112,8 @@ function colorize_entry_name(entry: FSNode): string {
 	if (entry.type === 'symlink') {
 		return colorize(entry.name, 'magenta') + ' -> ' + (entry.target || '');
 	}
-	if (entry.permissions?.includes('x')) {
+	// Only check executable bit on files, not directories
+	if (entry.type === 'file' && entry.permissions && entry.permissions[3] === 'x') {
 		return colorize(entry.name, 'red');
 	}
 	// Colorize by extension
@@ -159,7 +159,8 @@ function cmd_cd(args: string[], state: TerminalState): CommandResult {
 
 	if (target === '-') {
 		const old = state.env['OLDPWD'] || state.cwd;
-		return { lines: [], new_cwd: old };
+		// Real zsh prints the directory when using cd -
+		return { lines: [old], new_cwd: old };
 	}
 
 	const { node, absolute_path } = resolve_path(state.fs_root, state.cwd, target);
@@ -186,6 +187,11 @@ function cmd_cat(args: string[], state: TerminalState): CommandResult {
 
 	const show_numbers = args.includes('-n');
 	const file_args = args.filter(a => !a.startsWith('-'));
+
+	if (file_args.length === 0) {
+		return { lines: ['usage: cat [-benstuv] [file ...]'] };
+	}
+
 	const all_lines: string[] = [];
 
 	for (const file_path of file_args) {
@@ -250,10 +256,8 @@ function cmd_mkdir(args: string[], state: TerminalState): CommandResult {
 			return { lines: [`mkdir: ${dir_path}: File exists`] };
 		}
 
-		const { parent, parent_path } = get_parent_dir(
-			state.fs_root,
-			resolve_path(state.fs_root, state.cwd, dir_path).absolute_path,
-		);
+		const abs = resolve_path(state.fs_root, state.cwd, dir_path).absolute_path;
+		const { parent } = get_parent_dir(state.fs_root, abs);
 
 		if (!parent || parent.type !== 'dir' || !parent.children) {
 			if (!make_parents) {
@@ -352,29 +356,40 @@ function cmd_rm(args: string[], state: TerminalState): CommandResult {
 function cmd_grep(args: string[], state: TerminalState): CommandResult {
 	const case_insensitive = args.includes('-i');
 	const show_numbers = args.includes('-n');
+	const recursive = args.includes('-r') || args.includes('-R');
 	const non_flag_args = args.filter(a => !a.startsWith('-'));
 
-	if (non_flag_args.length < 2) {
+	if (non_flag_args.length < 1) {
+		return { lines: ['usage: grep [-abcDEFGHhIiJLlMmnOopqRSsUVvwXxZz] [-A num] [-B num] [-C[num]]', '       [-e pattern] [-f file] [--binary-files=value] [--color=when]', '       [pattern] [file ...]'] };
+	}
+
+	if (non_flag_args.length < 2 && !recursive) {
 		return { lines: ['usage: grep [-abcDEFGHhIiJLlMmnOopqRSsUVvwXxZz] [-A num] [-B num] [-C[num]]', '       [-e pattern] [-f file] [--binary-files=value] [--color=when]', '       [pattern] [file ...]'] };
 	}
 
 	const pattern = non_flag_args[0];
 	const file_paths = non_flag_args.slice(1);
 	const all_lines: string[] = [];
-	const regex = new RegExp(pattern, case_insensitive ? 'gi' : 'g');
-	const multi_file = file_paths.length > 1;
 
-	for (const file_path of file_paths) {
-		const { node } = resolve_path(state.fs_root, state.cwd, file_path);
+	let regex: RegExp;
+	try {
+		regex = new RegExp(pattern, case_insensitive ? 'gi' : 'g');
+	} catch {
+		return { lines: [`grep: Invalid regular expression: ${pattern}`] };
+	}
 
-		if (!node) {
-			all_lines.push(`grep: ${file_path}: No such file or directory`);
-			continue;
-		}
+	const multi_file = file_paths.length > 1 || recursive;
 
+	function grep_file(file_path: string, node: FSNode) {
 		if (node.type === 'dir') {
-			all_lines.push(`grep: ${file_path}: Is a directory`);
-			continue;
+			if (recursive && node.children) {
+				for (const [child_name, child] of node.children) {
+					grep_file(file_path + '/' + child_name, child);
+				}
+			} else if (!recursive) {
+				all_lines.push(`grep: ${file_path}: Is a directory`);
+			}
+			return;
 		}
 
 		if (node.content) {
@@ -393,7 +408,76 @@ function cmd_grep(args: string[], state: TerminalState): CommandResult {
 		}
 	}
 
+	if (file_paths.length === 0 && recursive) {
+		// grep -r pattern . (search current directory)
+		const { node } = resolve_path(state.fs_root, state.cwd, '.');
+		if (node && node.type === 'dir' && node.children) {
+			for (const [child_name, child] of node.children) {
+				grep_file(child_name, child);
+			}
+		}
+	} else {
+		for (const file_path of file_paths) {
+			const { node } = resolve_path(state.fs_root, state.cwd, file_path);
+			if (!node) {
+				all_lines.push(`grep: ${file_path}: No such file or directory`);
+				continue;
+			}
+			grep_file(file_path, node);
+		}
+	}
+
 	return { lines: all_lines };
+}
+
+function cmd_find(args: string[], state: TerminalState): CommandResult {
+	const path_arg = args.find(a => !a.startsWith('-')) || '.';
+	const name_idx = args.indexOf('-name');
+	const type_idx = args.indexOf('-type');
+
+	const name_pattern = name_idx >= 0 && args[name_idx + 1] ? args[name_idx + 1].replace(/^["']|["']$/g, '') : null;
+	const type_filter = type_idx >= 0 && args[type_idx + 1] ? args[type_idx + 1] : null;
+
+	const target = path_arg === '.' ? state.cwd : path_arg;
+	const { node } = resolve_path(state.fs_root, state.cwd, target);
+
+	if (!node || node.type !== 'dir' || !node.children) {
+		return { lines: [`find: ${path_arg}: No such file or directory`] };
+	}
+
+	const results: string[] = [];
+
+	function walk(dir_node: FSNode, prefix: string) {
+		if (dir_node.type !== 'dir' || !dir_node.children) return;
+
+		for (const [name, child] of dir_node.children) {
+			const full_path = prefix + '/' + name;
+
+			let matches = true;
+			if (name_pattern) {
+				// Simple glob: convert * to regex
+				const re = new RegExp('^' + name_pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+				matches = re.test(name);
+			}
+			if (type_filter) {
+				if (type_filter === 'f' && child.type !== 'file') matches = false;
+				if (type_filter === 'd' && child.type !== 'dir') matches = false;
+			}
+
+			if (matches) {
+				results.push(full_path);
+			}
+
+			if (child.type === 'dir') {
+				walk(child, full_path);
+			}
+		}
+	}
+
+	results.push(path_arg);
+	walk(node, path_arg);
+
+	return { lines: results };
 }
 
 function cmd_clear(_args: string[], _state: TerminalState): CommandResult {
@@ -464,6 +548,9 @@ function cmd_which(args: string[], _state: TerminalState): CommandResult {
 		'npm': '/usr/local/bin/npm', 'git': '/usr/bin/git', 'vim': '/usr/bin/vim',
 		'curl': '/usr/bin/curl', 'zsh': '/bin/zsh', 'bash': '/bin/bash',
 		'ssh': '/usr/bin/ssh', 'man': '/usr/bin/man', 'brew': '/usr/local/bin/brew',
+		'find': '/usr/bin/find', 'sort': '/usr/bin/sort', 'awk': '/usr/bin/awk',
+		'sed': '/usr/bin/sed', 'wc': '/usr/bin/wc', 'head': '/usr/bin/head',
+		'tail': '/usr/bin/tail',
 	};
 
 	const lines: string[] = [];
@@ -496,6 +583,9 @@ function cmd_head(args: string[], state: TerminalState): CommandResult {
 		const { node } = resolve_path(state.fs_root, state.cwd, fp);
 		if (!node) { all.push(`head: ${fp}: No such file or directory`); continue; }
 		if (node.type === 'dir') { all.push(`head: ${fp}: Is a directory`); continue; }
+		if (file_args.length > 1) {
+			all.push(`==> ${fp} <==`);
+		}
 		if (node.content) {
 			const lines = node.content.split('\n');
 			all.push(...lines.slice(0, num_lines));
@@ -523,6 +613,9 @@ function cmd_tail(args: string[], state: TerminalState): CommandResult {
 		const { node } = resolve_path(state.fs_root, state.cwd, fp);
 		if (!node) { all.push(`tail: ${fp}: No such file or directory`); continue; }
 		if (node.type === 'dir') { all.push(`tail: ${fp}: Is a directory`); continue; }
+		if (file_args.length > 1) {
+			all.push(`==> ${fp} <==`);
+		}
 		if (node.content) {
 			const lines = node.content.split('\n').filter(l => l !== '');
 			all.push(...lines.slice(-num_lines));
@@ -541,7 +634,7 @@ function cmd_wc(args: string[], state: TerminalState): CommandResult {
 	for (const fp of file_args) {
 		const { node } = resolve_path(state.fs_root, state.cwd, fp);
 		if (!node) { all.push(`wc: ${fp}: No such file or directory`); continue; }
-		if (node.type === 'dir') { all.push(`wc: ${fp}: Is a directory`); continue; }
+		if (node.type === 'dir') { all.push(`wc: ${fp}: read: Is a directory`); continue; }
 		const content = node.content || '';
 		const l = content.split('\n').length - (content.endsWith('\n') ? 1 : 0);
 		const w = content.split(/\s+/).filter(Boolean).length;
@@ -554,6 +647,77 @@ function cmd_wc(args: string[], state: TerminalState): CommandResult {
 		all.push(`${String(total_lines).padStart(8)}${String(total_words).padStart(8)}${String(total_bytes).padStart(8)} total`);
 	}
 	return { lines: all };
+}
+
+function cmd_sort(args: string[], state: TerminalState): CommandResult {
+	const reverse = args.includes('-r');
+	const numeric = args.includes('-n');
+	const unique = args.includes('-u');
+	const file_args = args.filter(a => !a.startsWith('-'));
+
+	if (file_args.length === 0) return { lines: ['usage: sort [-bcCdfghiRMmnrsuVz] [-t char] [file ...]'] };
+
+	const all_content: string[] = [];
+	for (const fp of file_args) {
+		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		if (!node) return { lines: [`sort: ${fp}: No such file or directory`] };
+		if (node.type === 'dir') return { lines: [`sort: ${fp}: Is a directory`] };
+		if (node.content) {
+			all_content.push(...node.content.split('\n').filter(l => l !== ''));
+		}
+	}
+
+	let sorted: string[];
+	if (numeric) {
+		sorted = all_content.sort((a, b) => parseFloat(a) - parseFloat(b));
+	} else {
+		sorted = all_content.sort();
+	}
+	if (reverse) sorted.reverse();
+	if (unique) sorted = [...new Set(sorted)];
+
+	return { lines: sorted };
+}
+
+function cmd_uniq(args: string[], state: TerminalState): CommandResult {
+	const count = args.includes('-c');
+	const file_args = args.filter(a => !a.startsWith('-'));
+
+	if (file_args.length === 0) return { lines: ['usage: uniq [-c | -d | -D | -u] [-i] [-f fields] [-s chars] [input [output]]'] };
+
+	const { node } = resolve_path(state.fs_root, state.cwd, file_args[0]);
+	if (!node) return { lines: [`uniq: ${file_args[0]}: No such file or directory`] };
+	if (!node.content) return { lines: [] };
+
+	const lines = node.content.split('\n').filter(l => l !== '');
+	const result: string[] = [];
+	let prev = '';
+	let cnt = 0;
+
+	for (const line of lines) {
+		if (line === prev) {
+			cnt++;
+		} else {
+			if (prev !== '' || cnt > 0) {
+				if (count) {
+					result.push(`${String(cnt).padStart(7)} ${prev}`);
+				} else {
+					result.push(prev);
+				}
+			}
+			prev = line;
+			cnt = 1;
+		}
+	}
+	if (prev !== '' || cnt > 0) {
+		if (count) {
+			result.push(`${String(cnt).padStart(7)} ${prev}`);
+		} else {
+			result.push(prev);
+		}
+	}
+
+	return { lines: result };
 }
 
 function cmd_man(args: string[], _state: TerminalState): CommandResult {
@@ -606,7 +770,7 @@ function cmd_man(args: string[], _state: TerminalState): CommandResult {
 			'     grep -- file pattern searcher',
 			'',
 			colorize('SYNOPSIS', 'bold'),
-			'     grep [-i] [-n] pattern file ...',
+			'     grep [-i] [-n] [-r] pattern file ...',
 			'',
 			colorize('DESCRIPTION', 'bold'),
 			'     grep searches for pattern in each file. When a match is found, the',
@@ -614,6 +778,7 @@ function cmd_man(args: string[], _state: TerminalState): CommandResult {
 			'',
 			'     -i    Case-insensitive search.',
 			'     -n    Show line numbers.',
+			'     -r    Recursively search directories.',
 			'',
 			'     (END)',
 		],
@@ -641,35 +806,43 @@ function cmd_man(args: string[], _state: TerminalState): CommandResult {
 
 function cmd_top(_args: string[], _state: TerminalState): CommandResult {
 	const procs = [
-		{ pid: 1, name: 'kernel_task', cpu: (Math.random() * 5).toFixed(1), mem: '1024M', user: 'root', state: 'sleeping' },
-		{ pid: 127, name: 'WindowServer', cpu: (Math.random() * 15 + 5).toFixed(1), mem: '512M', user: 'root', state: 'running' },
-		{ pid: 248, name: 'Safari', cpu: (Math.random() * 20 + 3).toFixed(1), mem: '896M', user: 'user', state: 'running' },
-		{ pid: 302, name: 'Terminal', cpu: (Math.random() * 3).toFixed(1), mem: '64M', user: 'user', state: 'running' },
-		{ pid: 355, name: 'Finder', cpu: (Math.random() * 5).toFixed(1), mem: '128M', user: 'user', state: 'running' },
-		{ pid: 412, name: 'Dock', cpu: (Math.random() * 2).toFixed(1), mem: '48M', user: 'user', state: 'sleeping' },
-		{ pid: 489, name: 'Spotlight', cpu: (Math.random() * 8).toFixed(1), mem: '256M', user: 'user', state: 'sleeping' },
-		{ pid: 523, name: 'loginwindow', cpu: '0.0', mem: '32M', user: 'root', state: 'sleeping' },
-		{ pid: 601, name: 'mds_stores', cpu: (Math.random() * 4).toFixed(1), mem: '96M', user: 'root', state: 'sleeping' },
-		{ pid: 678, name: 'coreaudiod', cpu: (Math.random() * 2).toFixed(1), mem: '24M', user: 'root', state: 'sleeping' },
-		{ pid: 712, name: 'SystemUIServer', cpu: (Math.random() * 1.5).toFixed(1), mem: '36M', user: 'user', state: 'sleeping' },
-		{ pid: 845, name: 'Activity Monitor', cpu: (Math.random() * 6 + 1).toFixed(1), mem: '78M', user: 'user', state: 'running' },
+		{ pid: 1, name: 'kernel_task', cpu: (Math.random() * 5).toFixed(1), mem: '1024M', user: 'root', state: 'sleeping', threads: 148 },
+		{ pid: 127, name: 'WindowServer', cpu: (Math.random() * 15 + 5).toFixed(1), mem: '512M', user: '_windowserver', state: 'running', threads: 21 },
+		{ pid: 248, name: 'Safari', cpu: (Math.random() * 20 + 3).toFixed(1), mem: '896M', user: 'user', state: 'running', threads: 34 },
+		{ pid: 302, name: 'Terminal', cpu: (Math.random() * 3).toFixed(1), mem: '64M', user: 'user', state: 'running', threads: 8 },
+		{ pid: 355, name: 'Finder', cpu: (Math.random() * 5).toFixed(1), mem: '128M', user: 'user', state: 'running', threads: 12 },
+		{ pid: 412, name: 'Dock', cpu: (Math.random() * 2).toFixed(1), mem: '48M', user: 'user', state: 'sleeping', threads: 6 },
+		{ pid: 489, name: 'Spotlight', cpu: (Math.random() * 8).toFixed(1), mem: '256M', user: 'user', state: 'sleeping', threads: 15 },
+		{ pid: 523, name: 'loginwindow', cpu: '0.0', mem: '32M', user: 'root', state: 'sleeping', threads: 4 },
+		{ pid: 601, name: 'mds_stores', cpu: (Math.random() * 4).toFixed(1), mem: '96M', user: 'root', state: 'sleeping', threads: 9 },
+		{ pid: 678, name: 'coreaudiod', cpu: (Math.random() * 2).toFixed(1), mem: '24M', user: '_coreaudiod', state: 'sleeping', threads: 7 },
+		{ pid: 712, name: 'SystemUIServer', cpu: (Math.random() * 1.5).toFixed(1), mem: '36M', user: 'user', state: 'sleeping', threads: 5 },
+		{ pid: 845, name: 'Activity Monitor', cpu: (Math.random() * 6 + 1).toFixed(1), mem: '78M', user: 'user', state: 'running', threads: 11 },
 	];
 
+	const running_count = procs.filter(p => p.state === 'running').length;
+	const sleeping_count = procs.length - running_count;
 	const total_cpu = procs.reduce((s, p) => s + parseFloat(p.cpu), 0);
+	const total_threads = procs.reduce((s, p) => s + p.threads, 0);
 	const d = new Date();
 	const time = d.toTimeString().split(' ')[0].slice(0, 5);
 
 	const lines = [
-		colorize(`Processes: ${procs.length} total, 4 running, ${procs.length - 4} sleeping`, 'bold'),
-		colorize(`Load Avg: ${(Math.random() * 3 + 1).toFixed(2)}, ${(Math.random() * 2 + 0.5).toFixed(2)}, ${(Math.random() * 1.5 + 0.3).toFixed(2)}`, 'bold'),
-		colorize(`CPU usage: ${total_cpu.toFixed(1)}% user, ${(Math.random() * 5).toFixed(1)}% sys, ${(100 - total_cpu - 5).toFixed(1)}% idle`, 'bold'),
-		colorize(`PhysMem: 8192M used (4096M wired), 8192M unused.`, 'bold'),
+		colorize(`Processes: ${procs.length} total, ${running_count} running, ${sleeping_count} sleeping, ${total_threads} threads`, 'bold'),
+		`${time}  Load Avg: ${(Math.random() * 3 + 1).toFixed(2)}, ${(Math.random() * 2 + 0.5).toFixed(2)}, ${(Math.random() * 1.5 + 0.3).toFixed(2)}`,
+		`CPU usage: ${total_cpu.toFixed(1)}% user, ${(Math.random() * 5).toFixed(1)}% sys, ${Math.max(0, 100 - total_cpu - 5).toFixed(1)}% idle`,
+		`SharedLibs: 284M resident, 62M data, 24M linkedit.`,
+		`MemRegions: 98124 total, 6144M resident, 142M private, 2048M shared.`,
+		`PhysMem: 12G used (4096M wired), 4096M unused.`,
+		`VM: 248G vsize, 3584M framework vsize, 0(0) swapins, 0(0) swapouts.`,
+		`Networks: packets: 1284567/1024M in, 987654/512M out.`,
+		`Disks: 2456789/48G read, 1234567/24G written.`,
 		'',
-		colorize('PID    COMMAND          %CPU  MEM     USER     STATE', 'bold'),
+		colorize('PID    COMMAND          %CPU  MEM     USER            STATE       #TH', 'bold'),
 		...procs
 			.sort((a, b) => parseFloat(b.cpu) - parseFloat(a.cpu))
 			.map(p =>
-				`${String(p.pid).padStart(5)}  ${p.name.padEnd(17)}${p.cpu.padStart(5)}  ${p.mem.padStart(6)}  ${p.user.padEnd(8)} ${p.state}`
+				`${String(p.pid).padStart(5)}  ${p.name.padEnd(17)}${p.cpu.padStart(5)}  ${p.mem.padStart(6)}  ${p.user.padEnd(16)}${p.state.padEnd(12)}${String(p.threads).padStart(3)}`
 			),
 		'',
 		colorize('(simulated output - press q to exit)', 'dim'),
@@ -684,20 +857,29 @@ function cmd_curl(args: string[], _state: TerminalState): CommandResult {
 	}
 
 	const verbose = args.includes('-v') || args.includes('--verbose');
+	const head_only = args.includes('-I') || args.includes('--head');
 	const lines: string[] = [];
+	const hostname = url.replace(/https?:\/\//, '').split('/')[0];
 
-	if (verbose) {
-		lines.push(colorize(`*   Trying 93.184.216.34:443...`, 'dim'));
-		lines.push(colorize(`* Connected to ${url.replace(/https?:\/\//, '').split('/')[0]} (93.184.216.34) port 443`, 'dim'));
-		lines.push(colorize(`> GET / HTTP/2`, 'dim'));
-		lines.push(colorize(`> Host: ${url.replace(/https?:\/\//, '').split('/')[0]}`, 'dim'));
-		lines.push(colorize(`> User-Agent: curl/8.4.0`, 'dim'));
-		lines.push(colorize(`> Accept: */*`, 'dim'));
-		lines.push(colorize(`>`, 'dim'));
-		lines.push(colorize(`< HTTP/2 200`, 'dim'));
-		lines.push(colorize(`< content-type: text/html; charset=UTF-8`, 'dim'));
-		lines.push(colorize(`< date: ${new Date().toUTCString()}`, 'dim'));
-		lines.push(colorize(`<`, 'dim'));
+	if (verbose || head_only) {
+		if (verbose) {
+			lines.push(colorize(`*   Trying 93.184.216.34:443...`, 'dim'));
+			lines.push(colorize(`* Connected to ${hostname} (93.184.216.34) port 443 (#0)`, 'dim'));
+			lines.push(colorize(`* ALPN: offers h2,http/1.1`, 'dim'));
+			lines.push(colorize(`* TLSv1.3 (OUT), TLS handshake`, 'dim'));
+			lines.push(colorize(`> GET / HTTP/2`, 'dim'));
+			lines.push(colorize(`> Host: ${hostname}`, 'dim'));
+			lines.push(colorize(`> User-Agent: curl/8.4.0`, 'dim'));
+			lines.push(colorize(`> Accept: */*`, 'dim'));
+			lines.push(colorize(`>`, 'dim'));
+		}
+		lines.push(`HTTP/2 200`);
+		lines.push(`content-type: text/html; charset=UTF-8`);
+		lines.push(`date: ${new Date().toUTCString()}`);
+		lines.push(`server: nginx/1.24.0`);
+		lines.push(`content-length: 1256`);
+		lines.push('');
+		if (head_only) return { lines };
 	}
 
 	lines.push('<!DOCTYPE html>');
@@ -724,7 +906,7 @@ function cmd_python3(args: string[], _state: TerminalState): CommandResult {
 			const math_match = code.match(/print\((.+)\)/);
 			if (math_match) {
 				try {
-					const result = eval(math_match[1]);
+					const result = Function('"use strict"; return (' + math_match[1] + ')')();
 					return { lines: [String(result)] };
 				} catch {
 					return { lines: [`NameError: name '${math_match[1]}' is not defined`] };
@@ -752,7 +934,7 @@ function cmd_node(args: string[], _state: TerminalState): CommandResult {
 			const expr_match = code.match(/console\.log\((.+)\)/);
 			if (expr_match) {
 				try {
-					const result = eval(expr_match[1]);
+					const result = Function('"use strict"; return (' + expr_match[1] + ')')();
 					return { lines: [String(result)] };
 				} catch {
 					return { lines: [`ReferenceError: ${expr_match[1]} is not defined`] };
@@ -779,7 +961,7 @@ function cmd_brew(args: string[], _state: TerminalState): CommandResult {
 			colorize(`==>`, 'blue') + colorize(` Downloading ${pkg}...`, 'bold'),
 			colorize(`==>`, 'blue') + colorize(` Installing ${pkg}`, 'bold'),
 			colorize(`==>`, 'blue') + ` Pouring ${pkg}--1.0.0.arm64_sonoma.bottle.tar.gz`,
-			colorize(`\u{1f37a}`, 'green') + `  /usr/local/Cellar/${pkg}/1.0.0: 42 files, 2.1MB`,
+			`/usr/local/Cellar/${pkg}/1.0.0: 42 files, 2.1MB`,
 		] };
 	}
 	if (args[0] === 'list') {
@@ -791,10 +973,19 @@ function cmd_brew(args: string[], _state: TerminalState): CommandResult {
 			'Already up-to-date.',
 		] };
 	}
+	if (args[0] === 'info') {
+		const pkg = args[1] || 'homebrew';
+		return { lines: [
+			colorize(`${pkg}: stable 1.0.0`, 'bold'),
+			'https://formulae.brew.sh/',
+			'Not installed',
+			'From: https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/' + pkg + '.rb',
+		] };
+	}
 	return { lines: [`Error: Unknown command: ${args[0]}`] };
 }
 
-function cmd_git(args: string[], state: TerminalState): CommandResult {
+function cmd_git(args: string[], _state: TerminalState): CommandResult {
 	if (args.length === 0 || args[0] === '--version') {
 		return { lines: ['git version 2.43.0'] };
 	}
@@ -806,19 +997,60 @@ function cmd_git(args: string[], state: TerminalState): CommandResult {
 			'nothing to commit, working tree clean',
 		] };
 	}
-	if (args[0] === 'log' || args[0] === 'log --oneline') {
+	if (args[0] === 'log') {
+		const oneline = args.includes('--oneline');
+		if (oneline) {
+			return { lines: [
+				colorize('a1b2c3d', 'yellow') + ' (HEAD -> main, origin/main) Initial commit',
+				colorize('e4f5g6h', 'yellow') + ' Add project structure',
+				colorize('i7j8k9l', 'yellow') + ' Update README',
+			] };
+		}
 		return { lines: [
-			colorize('a1b2c3d', 'yellow') + ' (HEAD -> main, origin/main) Initial commit',
-			colorize('e4f5g6h', 'yellow') + ' Add project structure',
-			colorize('i7j8k9l', 'yellow') + ' Update README',
+			colorize('commit a1b2c3d4e5f6g7h8i9j0 (HEAD -> main, origin/main)', 'yellow'),
+			'Author: User <user@example.com>',
+			'Date:   Mon Dec 15 10:30:00 2024 -0800',
+			'',
+			'    Initial commit',
+			'',
+			colorize('commit e4f5g6h7i8j9k0l1m2n3', 'yellow'),
+			'Author: User <user@example.com>',
+			'Date:   Sun Dec 14 15:22:00 2024 -0800',
+			'',
+			'    Add project structure',
+			'',
 		] };
 	}
 	if (args[0] === 'branch') {
+		if (args.includes('-a')) {
+			return { lines: [
+				'* ' + colorize('main', 'green'),
+				'  develop',
+				'  feature/new-ui',
+				'  ' + colorize('remotes/origin/main', 'red'),
+				'  ' + colorize('remotes/origin/develop', 'red'),
+			] };
+		}
 		return { lines: [
 			'* ' + colorize('main', 'green'),
 			'  develop',
 			'  feature/new-ui',
 		] };
+	}
+	if (args[0] === 'remote') {
+		if (args.includes('-v')) {
+			return { lines: [
+				'origin\thttps://github.com/user/repo.git (fetch)',
+				'origin\thttps://github.com/user/repo.git (push)',
+			] };
+		}
+		return { lines: ['origin'] };
+	}
+	if (args[0] === 'diff') {
+		return { lines: [] };
+	}
+	if (args[0] === 'init') {
+		return { lines: ['Initialized empty Git repository in /Users/user/.git/'] };
 	}
 	return { lines: [`git: '${args[0]}' is not a git command. See 'git --help'.`] };
 }
@@ -859,6 +1091,8 @@ function cmd_neofetch(_args: string[], _state: TerminalState): CommandResult {
 }
 
 function cmd_tree(args: string[], state: TerminalState): CommandResult {
+	const show_all = args.includes('-a');
+	const dirs_only = args.includes('-d');
 	const target = args.find(a => !a.startsWith('-')) || '.';
 	const path = target === '.' ? state.cwd : target;
 	const { node } = resolve_path(state.fs_root, state.cwd, path);
@@ -868,26 +1102,41 @@ function cmd_tree(args: string[], state: TerminalState): CommandResult {
 	}
 
 	const lines: string[] = [colorize(target === '.' ? '.' : node.name, 'blue')];
-	const entries = Array.from(node.children.values())
-		.filter(e => !e.name.startsWith('.'))
-		.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+	let dir_count = 0;
+	let file_count = 0;
 
-	let dir_count = 0, file_count = 0;
+	function walk(dir_node: FSNode, prefix: string) {
+		if (!dir_node.children) return;
 
-	entries.forEach((entry, i) => {
-		const is_last = i === entries.length - 1;
-		const prefix = is_last ? '\u2514\u2500\u2500 ' : '\u251c\u2500\u2500 ';
-		if (entry.type === 'dir') {
-			dir_count++;
-			lines.push(prefix + colorize(entry.name, 'blue'));
-		} else {
-			file_count++;
-			lines.push(prefix + entry.name);
+		let entries = Array.from(dir_node.children.values());
+		if (!show_all) {
+			entries = entries.filter(e => !e.name.startsWith('.'));
 		}
-	});
+		if (dirs_only) {
+			entries = entries.filter(e => e.type === 'dir');
+		}
+		entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+		entries.forEach((entry, i) => {
+			const is_last = i === entries.length - 1;
+			const connector = is_last ? '\u2514\u2500\u2500 ' : '\u251c\u2500\u2500 ';
+			const child_prefix = prefix + (is_last ? '    ' : '\u2502   ');
+
+			if (entry.type === 'dir') {
+				dir_count++;
+				lines.push(prefix + connector + colorize(entry.name, 'blue'));
+				walk(entry, child_prefix);
+			} else {
+				file_count++;
+				lines.push(prefix + connector + entry.name);
+			}
+		});
+	}
+
+	walk(node, '');
 
 	lines.push('');
-	lines.push(`${dir_count} directories, ${file_count} files`);
+	lines.push(`${dir_count} director${dir_count === 1 ? 'y' : 'ies'}, ${file_count} file${file_count === 1 ? '' : 's'}`);
 	return { lines };
 }
 
@@ -935,7 +1184,6 @@ function cmd_alias(_args: string[], _state: TerminalState): CommandResult {
 
 function cmd_du(args: string[], state: TerminalState): CommandResult {
 	const human = args.includes('-h') || args.includes('-sh');
-	const summary = args.includes('-s') || args.includes('-sh');
 	const target = args.find(a => !a.startsWith('-')) || '.';
 	const { node } = resolve_path(state.fs_root, state.cwd, target);
 
@@ -948,12 +1196,12 @@ function cmd_du(args: string[], state: TerminalState): CommandResult {
 
 function cmd_df(_args: string[], _state: TerminalState): CommandResult {
 	return { lines: [
-		'Filesystem     512-blocks      Used Available Capacity  Mounted on',
-		'/dev/disk3s1   965595304 186453280 762735192    20%    /',
-		'devfs                399       399         0   100%    /dev',
-		'/dev/disk3s6   965595304    131128 762735192     1%    /System/Volumes/VM',
-		'/dev/disk3s4   965595304  12845032 762735192     2%    /System/Volumes/Preboot',
-		'map auto_home          0         0         0   100%    /System/Volumes/Data/home',
+		'Filesystem     512-blocks      Used Available Capacity iused ifree %iused  Mounted on',
+		'/dev/disk3s1   965595304 186453280 762735192    20%  632145 4293335134    0%   /',
+		'devfs                399       399         0   100%     692        0  100%   /dev',
+		'/dev/disk3s6   965595304    131128 762735192     1%       3 4293967293    0%   /System/Volumes/VM',
+		'/dev/disk3s4   965595304  12845032 762735192     2%     412 4293966884    0%   /System/Volumes/Preboot',
+		'map auto_home          0         0         0   100%       0        0  100%   /System/Volumes/Data/home',
 	] };
 }
 
@@ -977,16 +1225,20 @@ function cmd_ping(args: string[], _state: TerminalState): CommandResult {
 function cmd_ifconfig(_args: string[], _state: TerminalState): CommandResult {
 	return { lines: [
 		colorize('en0:', 'bold') + ' flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500',
-		'\tinet 192.168.1.42 netmask 0xffffff00 broadcast 192.168.1.255',
+		'\toptions=6463<RXCSUM,TXCSUM,TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>',
 		'\tether a4:83:e7:12:34:56',
+		'\tinet6 fe80::1c8f:8e2b:42a1:f3e7%en0 prefixlen 64 secured scopeid 0x6',
+		'\tinet 192.168.1.42 netmask 0xffffff00 broadcast 192.168.1.255',
 		'\tnd6 options=201<PERFORMNUD,DAD>',
 		'\tmedia: autoselect',
 		'\tstatus: active',
 		'',
 		colorize('lo0:', 'bold') + ' flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384',
+		'\toptions=1203<RXCSUM,TXCSUM,TXSTATUS,SW_TIMESTAMP>',
 		'\tinet 127.0.0.1 netmask 0xff000000',
 		'\tinet6 ::1 prefixlen 128',
 		'\tinet6 fe80::1%lo0 prefixlen 64 scopeid 0x1',
+		'\tnd6 options=201<PERFORMNUD,DAD>',
 	] };
 }
 
@@ -1017,7 +1269,7 @@ function cmd_mv(args: string[], state: TerminalState): CommandResult {
 	const dst_path = non_flag[1];
 	const src_abs = resolve_path(state.fs_root, state.cwd, src_path).absolute_path;
 	const { node: src } = resolve_path(state.fs_root, state.cwd, src_path);
-	if (!src) return { lines: [`mv: ${src_path}: No such file or directory`] };
+	if (!src) return { lines: [`mv: rename ${src_path} to ${dst_path}: No such file or directory`] };
 
 	const dst_abs = resolve_path(state.fs_root, state.cwd, dst_path).absolute_path;
 	const { parent: dst_parent } = get_parent_dir(state.fs_root, dst_abs);
@@ -1035,12 +1287,203 @@ function cmd_mv(args: string[], state: TerminalState): CommandResult {
 
 function cmd_chmod(args: string[], state: TerminalState): CommandResult {
 	if (args.length < 2) return { lines: ['usage: chmod [-fhv] [-R [-H | -L | -P]] mode file ...'] };
+	const mode = args[0];
 	const file_args = args.slice(1);
 	for (const fp of file_args) {
 		const { node } = resolve_path(state.fs_root, state.cwd, fp);
 		if (!node) return { lines: [`chmod: ${fp}: No such file or directory`] };
+		// Parse octal mode and apply
+		const octal = parseInt(mode, 8);
+		if (!isNaN(octal)) {
+			const perms = [
+				node.type === 'dir' ? 'd' : '-',
+				(octal & 0o400) ? 'r' : '-',
+				(octal & 0o200) ? 'w' : '-',
+				(octal & 0o100) ? 'x' : '-',
+				(octal & 0o040) ? 'r' : '-',
+				(octal & 0o020) ? 'w' : '-',
+				(octal & 0o010) ? 'x' : '-',
+				(octal & 0o004) ? 'r' : '-',
+				(octal & 0o002) ? 'w' : '-',
+				(octal & 0o001) ? 'x' : '-',
+			].join('');
+			node.permissions = perms;
+		}
 	}
 	return { lines: [] };
+}
+
+function cmd_ln(args: string[], state: TerminalState): CommandResult {
+	const symbolic = args.includes('-s');
+	const non_flag = args.filter(a => !a.startsWith('-'));
+	if (non_flag.length < 2) return { lines: ['usage: ln [-Ffhinsv] source_file [target_file]'] };
+
+	const target_name = non_flag[0];
+	const link_path = non_flag[1];
+	const link_abs = resolve_path(state.fs_root, state.cwd, link_path).absolute_path;
+	const { parent } = get_parent_dir(state.fs_root, link_abs);
+
+	if (!parent || !parent.children) return { lines: [`ln: ${link_path}: No such file or directory`] };
+
+	const name = link_abs.split('/').filter(Boolean).pop()!;
+	if (symbolic) {
+		parent.children.set(name, {
+			type: 'symlink',
+			name,
+			permissions: 'lrwxr-xr-x',
+			owner: 'user',
+			group: 'staff',
+			size: target_name.length,
+			modified: new Date(),
+			target: target_name,
+		});
+	} else {
+		const { node: target } = resolve_path(state.fs_root, state.cwd, target_name);
+		if (!target) return { lines: [`ln: ${target_name}: No such file or directory`] };
+		parent.children.set(name, { ...target, name });
+	}
+	return { lines: [] };
+}
+
+function cmd_diff(args: string[], state: TerminalState): CommandResult {
+	const file_args = args.filter(a => !a.startsWith('-'));
+	if (file_args.length < 2) return { lines: ['usage: diff [-aBbdipTtw] [-c | -e | -f | -n | -q | -u] file1 file2'] };
+
+	const { node: n1 } = resolve_path(state.fs_root, state.cwd, file_args[0]);
+	const { node: n2 } = resolve_path(state.fs_root, state.cwd, file_args[1]);
+
+	if (!n1) return { lines: [`diff: ${file_args[0]}: No such file or directory`] };
+	if (!n2) return { lines: [`diff: ${file_args[1]}: No such file or directory`] };
+	if (n1.type === 'dir') return { lines: [`diff: ${file_args[0]}: Is a directory`] };
+	if (n2.type === 'dir') return { lines: [`diff: ${file_args[1]}: Is a directory`] };
+
+	const c1 = n1.content || '';
+	const c2 = n2.content || '';
+
+	if (c1 === c2) return { lines: [] };
+
+	// Simple unified diff
+	const lines1 = c1.split('\n');
+	const lines2 = c2.split('\n');
+	const result: string[] = [
+		`--- ${file_args[0]}`,
+		`+++ ${file_args[1]}`,
+		`@@ -1,${lines1.length} +1,${lines2.length} @@`,
+	];
+
+	for (const l of lines1) {
+		result.push(colorize(`-${l}`, 'red'));
+	}
+	for (const l of lines2) {
+		result.push(colorize(`+${l}`, 'green'));
+	}
+
+	return { lines: result };
+}
+
+function cmd_xargs(args: string[], _state: TerminalState): CommandResult {
+	// Basic xargs: just show what it would do
+	if (args.length === 0) return { lines: ['usage: xargs [-0opt] [-E eofstr] [-I replstr [-R replacements]]'] };
+	return { lines: [colorize('(simulated - xargs requires piped input)', 'dim')] };
+}
+
+function cmd_tee(args: string[], _state: TerminalState): CommandResult {
+	if (args.length === 0) return { lines: ['usage: tee [-ai] [file ...]'] };
+	return { lines: [colorize('(simulated - tee requires piped input)', 'dim')] };
+}
+
+function cmd_basename(args: string[], _state: TerminalState): CommandResult {
+	if (args.length === 0) return { lines: ['usage: basename string [suffix]'] };
+	const path = args[0];
+	let result = path.split('/').filter(Boolean).pop() || path;
+	if (args[1] && result.endsWith(args[1])) {
+		result = result.slice(0, -args[1].length);
+	}
+	return { lines: [result] };
+}
+
+function cmd_dirname(args: string[], _state: TerminalState): CommandResult {
+	if (args.length === 0) return { lines: ['usage: dirname path'] };
+	const path = args[0];
+	const parts = path.split('/');
+	parts.pop();
+	return { lines: [parts.join('/') || '.'] };
+}
+
+function cmd_readlink(args: string[], state: TerminalState): CommandResult {
+	const file_args = args.filter(a => !a.startsWith('-'));
+	if (file_args.length === 0) return { lines: ['usage: readlink [-fn] [file ...]'] };
+	const { node } = resolve_path(state.fs_root, state.cwd, file_args[0]);
+	if (!node) return { lines: [`readlink: ${file_args[0]}: No such file or directory`] };
+	if (node.type === 'symlink' && node.target) return { lines: [node.target] };
+	return { lines: [] };
+}
+
+function cmd_file(args: string[], state: TerminalState): CommandResult {
+	if (args.length === 0) return { lines: ['usage: file [-bcdEhikLNnprsSvzZ0] [--apple] [--mime-encoding]', '            [--mime-type] [-e testname] [-F separator] [-f namefile]', '            [-m magicfiles] file ...'] };
+
+	const results: string[] = [];
+	for (const fp of args) {
+		const { node } = resolve_path(state.fs_root, state.cwd, fp);
+		if (!node) { results.push(`${fp}: cannot open (No such file or directory)`); continue; }
+		if (node.type === 'dir') { results.push(`${fp}: directory`); continue; }
+		if (node.type === 'symlink') { results.push(`${fp}: symbolic link to ${node.target}`); continue; }
+		const ext = node.name.split('.').pop()?.toLowerCase();
+		if (ext === 'txt' || ext === 'md' || ext === 'log') {
+			results.push(`${fp}: ASCII text`);
+		} else if (ext === 'pdf') {
+			results.push(`${fp}: PDF document, version 1.7`);
+		} else if (ext === 'jpg' || ext === 'jpeg') {
+			results.push(`${fp}: JPEG image data`);
+		} else if (ext === 'png') {
+			results.push(`${fp}: PNG image data`);
+		} else if (ext === 'zip') {
+			results.push(`${fp}: Zip archive data`);
+		} else if (ext === 'dmg') {
+			results.push(`${fp}: zlib compressed data`);
+		} else if (ext === 'xlsx') {
+			results.push(`${fp}: Microsoft Excel 2007+`);
+		} else if (ext === 'gz' || ext === 'tar') {
+			results.push(`${fp}: gzip compressed data`);
+		} else if (node.content) {
+			results.push(`${fp}: ASCII text`);
+		} else {
+			results.push(`${fp}: data`);
+		}
+	}
+	return { lines: results };
+}
+
+function cmd_cal(_args: string[], _state: TerminalState): CommandResult {
+	const d = new Date();
+	const month = d.getMonth();
+	const year = d.getFullYear();
+	const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+	const header = `    ${months[month]} ${year}`;
+	const days_header = 'Su Mo Tu We Th Fr Sa';
+
+	const first_day = new Date(year, month, 1).getDay();
+	const days_in_month = new Date(year, month + 1, 0).getDate();
+	const today = d.getDate();
+
+	const weeks: string[] = [];
+	let week = '   '.repeat(first_day);
+
+	for (let day = 1; day <= days_in_month; day++) {
+		const day_str = String(day).padStart(2, ' ');
+		if (day === today) {
+			week += colorize(day_str, 'bold') + ' ';
+		} else {
+			week += day_str + ' ';
+		}
+		if ((first_day + day) % 7 === 0 || day === days_in_month) {
+			weeks.push(week.trimEnd());
+			week = '';
+		}
+	}
+
+	return { lines: [header, days_header, ...weeks] };
 }
 
 function cmd_help(_args: string[], _state: TerminalState): CommandResult {
@@ -1051,19 +1494,26 @@ function cmd_help(_args: string[], _state: TerminalState): CommandResult {
 		['cat', 'Display file contents'],
 		['echo', 'Display a line of text'],
 		['grep', 'Search file contents'],
+		['find', 'Find files by name or type'],
+		['sort', 'Sort lines of text'],
+		['uniq', 'Remove duplicate lines'],
 		['mkdir', 'Create directories'],
 		['touch', 'Create files / update timestamps'],
 		['rm', 'Remove files or directories'],
 		['cp', 'Copy files'],
 		['mv', 'Move/rename files'],
+		['ln', 'Create links'],
 		['head', 'Display first lines of a file'],
 		['tail', 'Display last lines of a file'],
 		['wc', 'Word, line, character count'],
+		['diff', 'Compare files'],
+		['file', 'Determine file type'],
 		['tree', 'Display directory tree'],
 		['clear', 'Clear terminal screen'],
 		['history', 'Show command history'],
 		['man', 'Display manual pages'],
 		['top', 'Display running processes'],
+		['cal', 'Display a calendar'],
 		['date', 'Show current date/time'],
 		['uptime', 'Show system uptime'],
 		['whoami', 'Print current user'],
@@ -1085,6 +1535,8 @@ function cmd_help(_args: string[], _state: TerminalState): CommandResult {
 		['du', 'Directory space usage'],
 		['ssh', 'Secure shell client'],
 		['chmod', 'Change file permissions'],
+		['basename', 'Return filename portion'],
+		['dirname', 'Return directory portion'],
 	];
 
 	const lines = [
@@ -1112,6 +1564,9 @@ export const COMMANDS: Record<string, CommandFn> = {
 	touch: cmd_touch,
 	rm: cmd_rm,
 	grep: cmd_grep,
+	find: cmd_find,
+	sort: cmd_sort,
+	uniq: cmd_uniq,
 	clear: cmd_clear,
 	history: cmd_history,
 	whoami: cmd_whoami,
@@ -1144,6 +1599,15 @@ export const COMMANDS: Record<string, CommandFn> = {
 	cp: cmd_cp,
 	mv: cmd_mv,
 	chmod: cmd_chmod,
+	ln: cmd_ln,
+	diff: cmd_diff,
+	xargs: cmd_xargs,
+	tee: cmd_tee,
+	basename: cmd_basename,
+	dirname: cmd_dirname,
+	readlink: cmd_readlink,
+	file: cmd_file,
+	cal: cmd_cal,
 	help: cmd_help,
 };
 
