@@ -162,7 +162,10 @@
 		will-change: width, height;
 
 		border-radius: 0.75rem;
+		overflow: hidden;
 		box-shadow: var(--elevated-shadow);
+
+		background-color: #f5f5f7;
 
 		cursor: var(--system-cursor-default), auto;
 
@@ -173,6 +176,8 @@
 		}
 
 		&.dark {
+			background-color: #1e1e1e;
+
 			& > :global(section),
 			& > :global(div) {
 				border-radius: inherit;

@@ -17,7 +17,7 @@
 					class="menu-button"
 					class:default-menu={menuID === 'default'}
 					class:apple-icon-button={menuID === 'apple'}
-					style:--scale={menubar_state.active === menuID ? 1 : 0}
+					style:--menu-highlight-opacity={menubar_state.active === menuID ? 0.12 : 0}
 					onclick={() => (menubar_state.active = menuID)}
 					onmouseover={() => menubar_state.active && (menubar_state.active = menuID)}
 					onfocus={() => (menubar_state.active = menuID)}
@@ -84,12 +84,11 @@
 
 			border-radius: inherit;
 
-			transform: scale(var(--scale), var(--scale));
-			transform-origin: center center;
+			opacity: var(--menu-highlight-opacity, 0);
 
-			transition: transform 100ms ease;
+			transition: opacity 80ms ease;
 
-			background-color: hsla(var(--system-color-dark-hsl), 0.2);
+			background-color: hsla(var(--system-color-dark-hsl), 1);
 		}
 	}
 
