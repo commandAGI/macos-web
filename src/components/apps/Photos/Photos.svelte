@@ -200,6 +200,8 @@
 		background: none;
 		cursor: pointer;
 		text-align: left;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.album-cover {

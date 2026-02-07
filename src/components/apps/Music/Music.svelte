@@ -1444,6 +1444,8 @@
 		cursor: pointer;
 		text-align: left;
 		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
 		transition: transform 0.2s ease;
 
 		&:hover {
@@ -1559,6 +1561,8 @@
 		cursor: pointer;
 		text-align: left;
 		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
 		transition: transform 0.2s ease;
 
 		&:hover {
@@ -1610,6 +1614,8 @@
 		background: none;
 		cursor: pointer;
 		text-align: left;
+		display: flex;
+		flex-direction: column;
 		transition: transform 0.2s ease;
 
 		&:hover {
@@ -1645,6 +1651,8 @@
 		background: none;
 		cursor: pointer;
 		text-align: left;
+		display: flex;
+		flex-direction: column;
 		transition: transform 0.2s ease;
 
 		&:hover {

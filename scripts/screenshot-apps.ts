@@ -1,6 +1,9 @@
 /**
  * Headless screenshot script for macOS simulator apps.
  *
+ * Takes screenshots of each app in its default state, then EXPLORES the app
+ * by clicking sidebar items, switching views, and navigating to different sections.
+ *
  * Usage:
  *   # In one terminal: npm run preview -- --port 4199
  *   # In another:
@@ -12,7 +15,7 @@
  * Outputs PNG screenshots to screenshots/ directory.
  */
 
-import { chromium } from 'playwright';
+import { chromium, type Page, type ElementHandle } from 'playwright';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
 
@@ -20,12 +23,304 @@ const SCREENSHOT_DIR = join(import.meta.dirname ?? '.', '..', 'screenshots');
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4199';
 const VIEWPORT = { width: 1440, height: 900 };
 
+/** Time to wait after opening an app (ms) */
+const OPEN_WAIT = 2000;
+/** Time to wait after clicking a sidebar/nav item (ms) */
+const NAV_WAIT = 1000;
+
 const ALL_APPS = [
   'finder', 'safari', 'terminal', 'notes', 'messages', 'mail',
   'photos', 'music', 'maps', 'system-preferences', 'facetime',
   'reminders', 'news', 'podcasts', 'tv', 'contacts', 'keynote',
-  'launchpad', 'devutils', 'preview',
+  'launchpad', 'calculator', 'calendar',
 ];
+
+// ---------------------------------------------------------------------------
+// Exploration configs per app
+// ---------------------------------------------------------------------------
+
+type ExploreStep = {
+  /** Screenshot suffix, e.g. "documents" => "01-finder-documents.png" */
+  name: string;
+  /** Action to perform before taking the screenshot */
+  action: (page: Page, windowEl: ElementHandle | null) => Promise<void>;
+};
+
+/**
+ * For each app, define the exploration steps beyond the default screenshot.
+ * If an app is not listed here, only the default screenshot is taken.
+ */
+const EXPLORATIONS: Record<string, ExploreStep[]> = {
+  finder: [
+    {
+      name: 'documents',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'Documents');
+      },
+    },
+    {
+      name: 'desktop',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'Desktop');
+      },
+    },
+    {
+      name: 'icons-view',
+      action: async (page, win) => {
+        // Click the icon-view button in the toolbar (first view-btn)
+        const scope = win ?? page;
+        const iconViewBtn = await findElement(scope, '.view-btn[title="Icon view"]');
+        if (iconViewBtn) {
+          await iconViewBtn.click();
+          await page.waitForTimeout(NAV_WAIT);
+        }
+      },
+    },
+  ],
+
+  safari: [
+    {
+      name: 'bookmarks-sidebar',
+      action: async (page, win) => {
+        // Click the sidebar toggle button (nav-btn with "Toggle sidebar" aria-label)
+        const scope = win ?? page;
+        const toggleBtn = await findElement(scope, 'button[aria-label="Toggle sidebar"]');
+        if (toggleBtn) {
+          await toggleBtn.click();
+          await page.waitForTimeout(NAV_WAIT);
+        }
+      },
+    },
+  ],
+
+  terminal: [
+    {
+      name: 'ls-command',
+      action: async (page, _win) => {
+        // Type a command in the terminal input
+        await page.keyboard.type('ls -la', { delay: 50 });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(NAV_WAIT);
+      },
+    },
+  ],
+
+  notes: [
+    {
+      name: 'second-note',
+      action: async (page, win) => {
+        // Click the second note-card in the note list
+        const scope = win ?? page;
+        const noteCards = await findAllElements(scope, '.note-card');
+        if (noteCards.length >= 2) {
+          await noteCards[1].click();
+          await page.waitForTimeout(NAV_WAIT);
+        }
+      },
+    },
+  ],
+
+  music: [
+    {
+      name: 'artists',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'Artists');
+      },
+    },
+    {
+      name: 'albums',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'Albums');
+      },
+    },
+  ],
+
+  'system-preferences': [
+    {
+      name: 'wifi',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'Wi-Fi');
+      },
+    },
+    {
+      name: 'general',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'General');
+      },
+    },
+    {
+      name: 'desktop-dock',
+      action: async (page, win) => {
+        await clickSidebarItem(page, win, 'Desktop & Dock');
+      },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Find a single element scoped to a parent (ElementHandle or Page).
+ */
+async function findElement(
+  scope: ElementHandle | Page,
+  selector: string,
+): Promise<ElementHandle<Element> | null> {
+  if ('$' in scope) {
+    return scope.$(selector);
+  }
+  return null;
+}
+
+/**
+ * Find all elements scoped to a parent (ElementHandle or Page).
+ */
+async function findAllElements(
+  scope: ElementHandle | Page,
+  selector: string,
+): Promise<ElementHandle<Element>[]> {
+  if ('$$' in scope) {
+    return scope.$$(selector);
+  }
+  return [];
+}
+
+/**
+ * Click a sidebar item by its text label, scoped to a window element.
+ * Searches for buttons with class "sidebar-item" or "folder-item"
+ * that contain the given text.
+ */
+async function clickSidebarItem(
+  page: Page,
+  windowEl: ElementHandle | null,
+  label: string,
+): Promise<boolean> {
+  // Try to find the button within the window scope
+  const scope = windowEl ?? page;
+  const buttons = await findAllElements(scope, 'button.sidebar-item, button.folder-item');
+
+  for (const btn of buttons) {
+    const text = await btn.textContent();
+    if (text && text.trim().includes(label)) {
+      await btn.click();
+      await page.waitForTimeout(NAV_WAIT);
+      return true;
+    }
+  }
+
+  // Fallback: use page-level locator with text matching
+  try {
+    const locator = page.locator(
+      `button.sidebar-item:has-text("${label}"), button.folder-item:has-text("${label}")`,
+    );
+    if (await locator.count() > 0) {
+      await locator.first().click();
+      await page.waitForTimeout(NAV_WAIT);
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  console.log(`    (sidebar item "${label}" not found)`);
+  return false;
+}
+
+/**
+ * Get the window section element for a given app by finding the
+ * .tl-container.{appId} and walking up to the parent <section>.
+ */
+async function getWindowElement(
+  page: Page,
+  appId: string,
+): Promise<ElementHandle | null> {
+  const tlEl = await page.$(`.tl-container.${appId}`);
+  if (!tlEl) return null;
+
+  const windowSection = await tlEl.evaluateHandle((el: Element) => {
+    let node = el.parentElement;
+    while (node && node.tagName !== 'SECTION') {
+      node = node.parentElement;
+    }
+    return node || el.parentElement;
+  });
+
+  return windowSection.asElement();
+}
+
+/**
+ * Take a window-cropped screenshot for an app.
+ * For launchpad, takes a full-page screenshot instead.
+ */
+async function takeAppScreenshot(
+  page: Page,
+  appId: string,
+  filePath: string,
+): Promise<void> {
+  if (appId === 'launchpad') {
+    // Launchpad is a full-screen overlay, screenshot entire viewport
+    await page.screenshot({ path: filePath });
+    return;
+  }
+
+  const windowEl = await getWindowElement(page, appId);
+  if (windowEl) {
+    await (windowEl as any).screenshot({ path: filePath });
+  } else {
+    // Fallback to full page screenshot
+    await page.screenshot({ path: filePath });
+  }
+}
+
+/**
+ * Open an app by clicking its dock button.
+ */
+async function openApp(page: Page, appId: string): Promise<void> {
+  const dockBtn = page.locator(`button.${appId}`);
+
+  if (await dockBtn.count() > 0) {
+    await dockBtn.click();
+  } else {
+    // Fallback: try finding by class on dock-open-app-button
+    await page.evaluate((id: string) => {
+      const allBtns = document.querySelectorAll('button.dock-open-app-button');
+      for (const btn of allBtns) {
+        if (btn.classList.contains(id)) {
+          (btn as HTMLElement).click();
+          return;
+        }
+      }
+    }, appId);
+  }
+
+  await page.waitForTimeout(OPEN_WAIT);
+}
+
+/**
+ * Close an app by hovering the traffic lights and clicking the close button.
+ */
+async function closeApp(page: Page, appId: string): Promise<void> {
+  try {
+    const tlContainer = await page.$(`.tl-container.${appId}`);
+    if (tlContainer) {
+      await tlContainer.hover();
+      await page.waitForTimeout(300);
+      const closeBtn = await page.$(`.tl-container.${appId} button:first-child`);
+      if (closeBtn) {
+        await closeBtn.click();
+      }
+    }
+  } catch {
+    // Ignore close errors
+  }
+  await page.waitForTimeout(500);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 async function screenshotApps(appIds: string[]) {
   await mkdir(SCREENSHOT_DIR, { recursive: true });
@@ -54,74 +349,38 @@ async function screenshotApps(appIds: string[]) {
     console.log(`\n[${prefix}] Opening: ${appId}`);
 
     try {
-      // Open app via dock button click
-      const cssId = appId; // dock buttons have class matching app_id
-      const dockBtn = page.locator(`button.${cssId}`);
+      // 1. Open the app
+      await openApp(page, appId);
 
-      if (await dockBtn.count() > 0) {
-        await dockBtn.click();
-      } else {
-        console.log(`  (dock button not found, trying JS)`);
-        // Fallback: directly set state
-        await page.evaluate((id: string) => {
-          // Walk the Svelte component tree to find apps state
-          const allBtns = document.querySelectorAll('button.dock-open-app-button');
-          for (const btn of allBtns) {
-            if (btn.classList.contains(id)) {
-              (btn as HTMLElement).click();
-              return;
-            }
-          }
-        }, appId);
-      }
+      // 2. Take default screenshot
+      const defaultPath = join(SCREENSHOT_DIR, `${prefix}-${appId}-default.png`);
+      await takeAppScreenshot(page, appId, defaultPath);
+      console.log(`  default -> ${prefix}-${appId}-default.png`);
 
-      await page.waitForTimeout(2000);
+      // 3. Explore the app (if exploration steps are defined)
+      const steps = EXPLORATIONS[appId];
+      if (steps && steps.length > 0) {
+        for (const step of steps) {
+          console.log(`  exploring: ${step.name}`);
+          try {
+            // Get the window element (re-fetch for each step in case DOM changed)
+            const windowEl = await getWindowElement(page, appId);
 
-      // Full desktop screenshot
-      const fullPath = join(SCREENSHOT_DIR, `${prefix}-${appId}-full.png`);
-      await page.screenshot({ path: fullPath });
-      console.log(`  full   -> ${prefix}-${appId}-full.png`);
+            // Perform the exploration action
+            await step.action(page, windowEl);
 
-      // Try to get just the window
-      try {
-        // The window wrapper is a <section> and the traffic-light container has .tl-container.{app_id}
-        // The section parent of tl-container is the window
-        const tlEl = await page.$(`.tl-container.${cssId}`);
-        if (tlEl) {
-          const windowSection = await tlEl.evaluateHandle((el: Element) => {
-            // Walk up to find the section element (window wrapper)
-            let node = el.parentElement;
-            while (node && node.tagName !== 'SECTION') {
-              node = node.parentElement;
-            }
-            return node || el.parentElement;
-          });
-          if (windowSection) {
-            const windowPath = join(SCREENSHOT_DIR, `${prefix}-${appId}-window.png`);
-            await (windowSection as any).screenshot({ path: windowPath });
-            console.log(`  window -> ${prefix}-${appId}-window.png`);
+            // Take the exploration screenshot
+            const stepPath = join(SCREENSHOT_DIR, `${prefix}-${appId}-${step.name}.png`);
+            await takeAppScreenshot(page, appId, stepPath);
+            console.log(`  ${step.name} -> ${prefix}-${appId}-${step.name}.png`);
+          } catch (err) {
+            console.log(`  (explore step "${step.name}" failed: ${err})`);
           }
         }
-      } catch {
-        console.log(`  (window crop skipped)`);
       }
 
-      // Close app: hover traffic lights then click close button
-      try {
-        const tlContainer = await page.$(`.tl-container.${cssId}`);
-        if (tlContainer) {
-          await tlContainer.hover();
-          await page.waitForTimeout(300);
-          const closeBtn = await page.$(`.tl-container.${cssId} button:first-child`);
-          if (closeBtn) {
-            await closeBtn.click();
-          }
-        }
-      } catch {
-        // Ignore close errors
-      }
-
-      await page.waitForTimeout(500);
+      // 4. Close the app
+      await closeApp(page, appId);
     } catch (err) {
       console.error(`  ERROR: ${err}`);
       const errPath = join(SCREENSHOT_DIR, `${prefix}-${appId}-error.png`);
