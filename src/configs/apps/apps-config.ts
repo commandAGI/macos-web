@@ -106,11 +106,11 @@ const maps = create_app_config({
 });
 
 const systemPreferences = create_app_config({
-	title: 'System Preferences',
+	title: 'System Settings',
 	resizable: true,
 
-	height: 550,
-	width: 700,
+	height: 620,
+	width: 860,
 });
 
 const facetime = create_app_config({
