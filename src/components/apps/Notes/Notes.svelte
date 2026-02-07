@@ -942,7 +942,7 @@
 		}
 
 		&.active {
-			background: rgba(0, 122, 255, 0.12);
+			background: rgba(0, 122, 255, 0.15);
 			color: #007aff;
 			border-radius: 6px;
 			margin: 0 6px;
@@ -969,7 +969,7 @@
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
-		color: #f5a623;
+		color: #86868b;
 	}
 
 	.folder-icon.trash-icon {
@@ -988,11 +988,19 @@
 		color: #007aff;
 	}
 
+	.folder-item.active .folder-icon.folder-type {
+		color: #007aff;
+	}
+
 	:global(body.dark) .folder-item.active .folder-icon {
 		color: #0a84ff;
 	}
 
 	:global(body.dark) .folder-item.active .folder-icon.trash-icon {
+		color: #0a84ff;
+	}
+
+	:global(body.dark) .folder-item.active .folder-icon.folder-type {
 		color: #0a84ff;
 	}
 

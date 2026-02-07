@@ -618,8 +618,10 @@
 					<div class="album-row">
 						{#each recently_played_albums as album}
 							<button class="album-card" onclick={() => open_album(album.id)}>
-								<div class="album-art" style:background={album.gradient}>
-									<span class="album-art-letter">{album.title.charAt(0)}</span>
+								<div class="recent-album-art" style:background={album.gradient}>
+									<div class="recent-album-overlay">
+										<div class="recent-album-title">{album.title}</div>
+									</div>
 								</div>
 								<div class="album-card-title">{album.title}</div>
 								<div class="album-card-artist">{album.artist}</div>
@@ -1212,8 +1214,8 @@
 
 	/* ── Sidebar ── */
 	.sidebar {
-		width: 220px;
-		min-width: 220px;
+		width: 240px;
+		min-width: 240px;
 		background: rgba(242, 242, 247, 0.85);
 		backdrop-filter: blur(20px);
 		-webkit-backdrop-filter: blur(20px);
@@ -1399,8 +1401,9 @@
 		font-size: 10px;
 		font-weight: 600;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 1.5px;
 		color: rgba(255, 255, 255, 0.8);
+		text-shadow: 0 1px 3px rgba(0,0,0,0.5);
 	}
 
 	.hero-title {
@@ -1479,6 +1482,40 @@
 		font-weight: 800;
 		color: rgba(255, 255, 255, 0.85);
 		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+	}
+
+	/* ── Recently Played Album Art (gradient + title overlay) ── */
+	.recent-album-art {
+		width: 140px;
+		height: 140px;
+		border-radius: 8px;
+		margin-bottom: 6px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+		display: flex;
+		align-items: flex-end;
+		position: relative;
+		overflow: hidden;
+		transition: box-shadow 0.2s ease;
+	}
+
+	.album-card:hover .recent-album-art {
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+	}
+
+	.recent-album-overlay {
+		width: 100%;
+		padding: 10px;
+		background: linear-gradient(transparent 0%, rgba(0, 0, 0, 0.55) 100%);
+	}
+
+	.recent-album-title {
+		font-size: 13px;
+		font-weight: 700;
+		color: white;
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.album-card-title {

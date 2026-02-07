@@ -25,9 +25,9 @@
 		{ id: 'displays', name: 'Displays', icon: 'display', iconBg: '#007AFF', group: 'display' },
 		{ id: 'wallpaper', name: 'Wallpaper', icon: 'photo', iconBg: '#34C759', group: 'display' },
 		{ id: 'screen-saver', name: 'Screen Saver', icon: 'sparkle', iconBg: '#FF9500', group: 'display' },
-		{ id: 'battery', name: 'Battery', icon: 'battery', iconBg: '#34C759', group: 'system' },
-		{ id: 'lock-screen', name: 'Lock Screen', icon: 'lock', iconBg: '#8E8E93', group: 'system' },
-		{ id: 'users', name: 'Users & Groups', icon: 'users', iconBg: '#8E8E93', group: 'system' },
+		{ id: 'battery', name: 'Battery', icon: 'battery', iconBg: '#34C759', group: 'display' },
+		{ id: 'lock-screen', name: 'Lock Screen', icon: 'lock', iconBg: '#8E8E93', group: 'display' },
+		{ id: 'users', name: 'Users & Groups', icon: 'users', iconBg: '#8E8E93', group: 'input' },
 		{ id: 'keyboard', name: 'Keyboard', icon: 'keyboard', iconBg: '#8E8E93', group: 'input' },
 		{ id: 'trackpad', name: 'Trackpad', icon: 'trackpad', iconBg: '#8E8E93', group: 'input' },
 		{ id: 'mouse', name: 'Mouse', icon: 'mouse', iconBg: '#8E8E93', group: 'input' },
@@ -1002,7 +1002,7 @@
 	}
 
 	.sidebar-gap {
-		height: 8px;
+		height: 12px;
 	}
 
 	.sidebar-item {
@@ -1350,8 +1350,8 @@
 	}
 
 	.appearance-preview {
-		width: 100px;
-		height: 68px;
+		width: 160px;
+		height: 100px;
 		border-radius: 8px;
 		background: #f5f5f7;
 		border: 2.5px solid transparent;
@@ -1388,22 +1388,22 @@
 	}
 
 	.preview-titlebar {
-		height: 10px;
+		height: 14px;
 		background: #e8e8ed;
 		display: flex;
 		align-items: center;
-		padding: 0 4px;
+		padding: 0 6px;
 		flex-shrink: 0;
 	}
 
 	.preview-dots {
 		display: flex;
-		gap: 2px;
+		gap: 3px;
 	}
 
 	.preview-dots .dot {
-		width: 4px;
-		height: 4px;
+		width: 5px;
+		height: 5px;
 		border-radius: 50%;
 	}
 	.dot.red { background: #ff5f57; }
@@ -1417,23 +1417,23 @@
 	}
 
 	.preview-sidebar {
-		width: 24px;
+		width: 36px;
 		background: #ececf0;
 		flex-shrink: 0;
 	}
 
 	.preview-content {
 		flex: 1;
-		padding: 6px;
+		padding: 10px;
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
+		gap: 5px;
 	}
 
 	.preview-line {
-		height: 3px;
+		height: 4px;
 		background: #d1d1d6;
-		border-radius: 1px;
+		border-radius: 2px;
 	}
 	.preview-line.short {
 		width: 60%;

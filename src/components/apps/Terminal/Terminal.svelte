@@ -74,14 +74,13 @@
 		const id = tab_counter++;
 		const fs = create_default_fs();
 		const login_date = new Date();
-		const line_counter = 2;
+		const line_counter = 1;
 
 		return {
 			id,
 			title: `zsh`,
 			lines: [
 				{ id: 0, html: render_colors(`<c:dim>Last login: ${login_date.toDateString()} ${login_date.toTimeString().split(' ')[0]} on ttys00${id}</c>`) },
-				{ id: 1, html: '' },
 			],
 			cwd: '/Users/user',
 			history: [],
@@ -568,7 +567,7 @@
 	// Title bar text (matches real macOS Terminal title format)
 	let title_text = $derived.by(() => {
 		const dir_display = display_path(active_tab.cwd);
-		return `${dir_display} \u2014 -zsh \u2014 80\u00d724`;
+		return `${dir_display} \u2014 zsh \u2014 80\u00d724`;
 	});
 
 	onMount(() => {
@@ -657,8 +656,7 @@
 	.container {
 		height: 100%;
 		width: 100%;
-		background-color: rgba(30, 30, 30, 0.95);
-		backdrop-filter: blur(20px);
+		background-color: #1e1e1e;
 		border-radius: inherit;
 		display: flex;
 		flex-direction: column;
@@ -674,7 +672,7 @@
 	.tab-bar {
 		display: flex;
 		align-items: stretch;
-		background: rgba(40, 40, 42, 0.95);
+		background: #28282a;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 		min-height: 30px;
 		padding: 0 4px;
@@ -708,7 +706,7 @@
 	}
 
 	.tab.active {
-		background: rgba(30, 30, 30, 0.95);
+		background: #1e1e1e;
 		color: rgba(255, 255, 255, 0.9);
 	}
 
@@ -757,7 +755,7 @@
 		align-items: center;
 		padding: 8px 12px;
 		min-height: 36px;
-		background: rgba(56, 56, 58, 0.8);
+		background: #38383a;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 		position: relative;
 	}
@@ -799,6 +797,7 @@
 		padding: 10px 10px;
 		overflow-y: auto;
 		overflow-x: hidden;
+		background-color: #1e1e1e;
 		color: #f2f2f2;
 		position: relative;
 		cursor: text;

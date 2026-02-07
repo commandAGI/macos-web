@@ -18,6 +18,7 @@
 	let sort_by = $state<'name' | 'modified' | 'size' | 'kind'>('name');
 	let sort_asc = $state(true);
 	let search_query = $state('');
+	let show_hidden = $state(false);
 
 	// Context menu state
 	let ctx_visible = $state(false);
@@ -272,9 +273,12 @@
 
 	function get_sorted_files(file_list: FileEntry[]): FileEntry[] {
 		let filtered = file_list;
+		if (!show_hidden) {
+			filtered = filtered.filter(f => !f.name.startsWith('.'));
+		}
 		if (search_query.trim()) {
 			const q = search_query.toLowerCase();
-			filtered = file_list.filter(f => f.name.toLowerCase().includes(q));
+			filtered = filtered.filter(f => f.name.toLowerCase().includes(q));
 		}
 		return [...filtered].sort((a, b) => {
 			// Folders always first
@@ -518,6 +522,12 @@
 		if (renaming_file) return;
 
 		const meta = event.metaKey || event.ctrlKey;
+
+		if (meta && event.shiftKey && event.key === '.') {
+			event.preventDefault();
+			show_hidden = !show_hidden;
+			return;
+		}
 
 		if (meta && event.key === 'a') {
 			event.preventDefault();
@@ -1580,8 +1590,8 @@
 		flex-shrink: 0;
 
 		:global(body.dark) & {
-			border-bottom-color: #38383a;
-			background-color: #2a2a2c;
+			border-bottom-color: rgba(255, 255, 255, 0.08);
+			background-color: rgba(255, 255, 255, 0.04);
 			color: #8e8e93;
 		}
 	}

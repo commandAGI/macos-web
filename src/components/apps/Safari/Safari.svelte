@@ -55,6 +55,10 @@
 		{ name: 'LinkedIn', url: 'https://www.linkedin.com', icon: 'in', color: '#0077B5' },
 		{ name: 'Stack Overflow', url: 'https://stackoverflow.com', icon: 'SO', color: '#F48024' },
 		{ name: 'MDN', url: 'https://developer.mozilla.org', icon: 'M', color: '#1B1B1B' },
+		{ name: 'Figma', url: 'https://www.figma.com', icon: 'F', color: '#A259FF' },
+		{ name: 'Spotify', url: 'https://www.spotify.com', icon: 'S', color: '#1DB954' },
+		{ name: 'Twitch', url: 'https://www.twitch.tv', icon: 'T', color: '#9146FF' },
+		{ name: 'Discord', url: 'https://discord.com', icon: 'D', color: '#5865F2' },
 	];
 
 	const frequently_visited: Favorite[] = [
@@ -123,6 +127,9 @@
 		'microsoft.com': '#00A4EF',
 		'docs.google.com': '#4285F4',
 		'news.ycombinator.com': '#FF6600',
+		'spotify.com': '#1DB954',
+		'twitch.tv': '#9146FF',
+		'discord.com': '#5865F2',
 	};
 
 	function get_favicon_color(url: string): string {
@@ -818,23 +825,41 @@
 										<div class="frequent-thumbnail">
 											<div class="frequent-site-preview">
 												<div class="frequent-site-header" style="background-color: {site.color}">
-													<span class="frequent-site-header-dot"></span>
-													<span class="frequent-site-header-dot"></span>
-													<span class="frequent-site-header-dot"></span>
+													<div class="frequent-header-left">
+														<span class="frequent-site-header-dot"></span>
+														<span class="frequent-site-header-dot"></span>
+														<span class="frequent-site-header-dot"></span>
+													</div>
+													<div class="frequent-header-bar"></div>
 												</div>
 												<div class="frequent-site-body">
-													<div class="frequent-site-icon" style="background-color: {site.color}">
-														{#if site.icon === 'apple'}
-															<svg width="16" height="16" viewBox="0 0 20 20" fill="white">
-																<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
-															</svg>
-														{:else if site.icon === 'github'}
-															<svg width="16" height="16" viewBox="0 0 16 16" fill="white">
-																<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-															</svg>
-														{:else}
-															<span class="frequent-letter">{site.icon}</span>
-														{/if}
+													<div class="frequent-site-nav" style="border-bottom-color: {site.color}20">
+														<div class="frequent-site-logo" style="background-color: {site.color}">
+															{#if site.icon === 'apple'}
+																<svg width="8" height="8" viewBox="0 0 20 20" fill="white">
+																	<path d="M15.07 13.633c-.263.16-.437.47-.437.816 0 1.368 1.072 2.197 2.16 2.753-.186.476-.556 1.28-.917 1.77-.555.745-1.13 1.49-2.04 1.505-.89.015-1.177-.527-2.196-.527-1.02 0-1.34.512-2.19.542-.877.03-1.543-.807-2.104-1.548-1.143-1.513-2.016-4.277-0.844-6.142.58-.92 1.618-1.503 2.744-1.52 0.858-.016 1.67.578 2.195.578.526 0 1.512-.715 2.548-.61.434.019 1.654.176 2.437 1.323-.063.04-1.454.85-1.44 2.535l.084.525zm-2.83-4.947c.464-.562.777-1.343.692-2.122-.669.027-1.477.446-1.957 1.008-.43.497-.806 1.293-.706 2.056.747.058 1.508-.38 1.971-.942z" transform="scale(0.82) translate(1, 1)"/>
+																</svg>
+															{:else if site.icon === 'github'}
+																<svg width="8" height="8" viewBox="0 0 16 16" fill="white">
+																	<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+																</svg>
+															{:else}
+																<span class="frequent-logo-letter">{site.icon}</span>
+															{/if}
+														</div>
+														<div class="frequent-nav-links">
+															<span class="frequent-nav-link"></span>
+															<span class="frequent-nav-link"></span>
+															<span class="frequent-nav-link short"></span>
+														</div>
+													</div>
+													<div class="frequent-site-content">
+														<div class="frequent-content-hero" style="background-color: {site.color}10"></div>
+														<div class="frequent-content-lines">
+															<span class="frequent-content-line wide"></span>
+															<span class="frequent-content-line medium"></span>
+															<span class="frequent-content-line narrow"></span>
+														</div>
 													</div>
 												</div>
 											</div>
@@ -1605,41 +1630,137 @@
 	}
 
 	.frequent-site-header {
-		height: 16px;
+		height: 14px;
 		display: flex;
 		align-items: center;
-		padding: 0 6px;
-		gap: 3px;
-		opacity: 0.15;
+		padding: 0 5px;
+		gap: 0;
+		flex-shrink: 0;
+	}
+
+	.frequent-header-left {
+		display: flex;
+		align-items: center;
+		gap: 2.5px;
 	}
 
 	.frequent-site-header-dot {
-		width: 4px;
-		height: 4px;
+		width: 3.5px;
+		height: 3.5px;
 		border-radius: 50%;
-		background: white;
+		background: rgba(255, 255, 255, 0.5);
+	}
+
+	.frequent-header-bar {
+		flex: 1;
+		height: 4px;
+		margin-left: 6px;
+		background: rgba(255, 255, 255, 0.2);
+		border-radius: 2px;
 	}
 
 	.frequent-site-body {
 		flex: 1;
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		flex-direction: column;
+		overflow: hidden;
 	}
 
-	.frequent-site-icon {
-		width: 32px;
-		height: 32px;
-		border-radius: 8px;
+	.frequent-site-nav {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 4px 6px 3px;
+		border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+
+		:global(body.dark) & {
+			border-bottom-color: rgba(255, 255, 255, 0.06);
+		}
+	}
+
+	.frequent-site-logo {
+		width: 14px;
+		height: 14px;
+		border-radius: 3px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-shrink: 0;
 	}
 
-	.frequent-letter {
-		font-size: 14px;
+	.frequent-logo-letter {
+		font-size: 8px;
 		font-weight: 700;
 		color: white;
+		line-height: 1;
+	}
+
+	.frequent-nav-links {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		flex: 1;
+	}
+
+	.frequent-nav-link {
+		height: 3px;
+		border-radius: 1.5px;
+		background: rgba(0, 0, 0, 0.1);
+		width: 16px;
+
+		&.short {
+			width: 10px;
+		}
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.1);
+		}
+	}
+
+	.frequent-site-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		padding: 4px 6px;
+		gap: 4px;
+	}
+
+	.frequent-content-hero {
+		height: 20px;
+		border-radius: 2px;
+		flex-shrink: 0;
+
+		:global(body.dark) & {
+			opacity: 0.5;
+		}
+	}
+
+	.frequent-content-lines {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+
+	.frequent-content-line {
+		height: 3px;
+		border-radius: 1.5px;
+		background: rgba(0, 0, 0, 0.07);
+
+		&.wide {
+			width: 90%;
+		}
+
+		&.medium {
+			width: 70%;
+		}
+
+		&.narrow {
+			width: 50%;
+		}
+
+		:global(body.dark) & {
+			background: rgba(255, 255, 255, 0.07);
+		}
 	}
 
 	.frequent-name {
