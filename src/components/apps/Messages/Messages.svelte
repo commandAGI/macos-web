@@ -4,7 +4,7 @@
 	type Message = { text: string; sent: boolean; time: string };
 	type Conversation = { name: string; avatar: string; messages: Message[]; lastMessage: string; lastTime: string };
 
-	const conversations: Conversation[] = [
+	let conversations: Conversation[] = $state([
 		{
 			name: 'Alice Johnson',
 			avatar: 'AJ',
@@ -54,21 +54,31 @@
 				{ text: 'Love you! Call me later ❤️', sent: false, time: 'Yesterday' },
 			],
 		},
-	];
+	]);
 
 	let selected = $state(0);
 	let new_message = $state('');
+	let messages_el: HTMLDivElement;
+
+	function scroll_to_bottom() {
+		if (messages_el) {
+			requestAnimationFrame(() => {
+				messages_el.scrollTop = messages_el.scrollHeight;
+			});
+		}
+	}
 
 	function send_message() {
 		if (new_message.trim() === '') return;
-		conversations[selected].messages = [...conversations[selected].messages, {
+		conversations[selected].messages.push({
 			text: new_message,
 			sent: true,
 			time: 'Now',
-		}];
+		});
 		conversations[selected].lastMessage = new_message;
 		conversations[selected].lastTime = 'Now';
 		new_message = '';
+		scroll_to_bottom();
 
 		// Simulate a reply notification after a short delay
 		const convo_name = conversations[selected].name;
@@ -121,7 +131,7 @@
 				<span class="chat-name">{conversations[selected].name}</span>
 			</div>
 
-			<div class="messages">
+			<div class="messages" bind:this={messages_el}>
 				{#each conversations[selected].messages as msg}
 					<div class="message" class:sent={msg.sent} class:received={!msg.sent}>
 						<div class="bubble">{msg.text}</div>
