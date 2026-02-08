@@ -60,6 +60,9 @@
 	let new_message = $state('');
 	let messages_el: HTMLDivElement;
 
+	let current_convo = $derived(conversations[selected]);
+	let current_messages = $derived(conversations[selected].messages);
+
 	function scroll_to_bottom() {
 		if (messages_el) {
 			requestAnimationFrame(() => {
@@ -70,11 +73,8 @@
 
 	function send_message() {
 		if (new_message.trim() === '') return;
-		conversations[selected].messages.push({
-			text: new_message,
-			sent: true,
-			time: 'Now',
-		});
+		const msg = { text: new_message, sent: true, time: 'Now' };
+		conversations[selected].messages = [...conversations[selected].messages, msg];
 		conversations[selected].lastMessage = new_message;
 		conversations[selected].lastTime = 'Now';
 		new_message = '';
@@ -126,13 +126,13 @@
 		<div class="chat-area">
 			<div class="chat-header">
 				<div class="chat-avatar" style:background-color={['#007aff', '#34c759', '#ff9500', '#ff3b30'][selected]}>
-					{conversations[selected].avatar}
+					{current_convo.avatar}
 				</div>
-				<span class="chat-name">{conversations[selected].name}</span>
+				<span class="chat-name">{current_convo.name}</span>
 			</div>
 
 			<div class="messages" bind:this={messages_el}>
-				{#each conversations[selected].messages as msg}
+				{#each current_messages as msg}
 					<div class="message" class:sent={msg.sent} class:received={!msg.sent}>
 						<div class="bubble">{msg.text}</div>
 						<div class="msg-time">{msg.time}</div>
