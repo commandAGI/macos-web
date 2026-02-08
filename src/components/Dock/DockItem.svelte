@@ -195,7 +195,7 @@
 	<span style:transform={bounce_style}>
 		<img
 			bind:this={image_el}
-			src="/app-icons/{app_id}/256.webp"
+			src="./app-icons/{app_id}/256.webp"
 			alt="{title} app"
 			style:width="{$width_px / 16}rem"
 			draggable="false"

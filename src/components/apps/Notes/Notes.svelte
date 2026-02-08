@@ -465,7 +465,7 @@
 		pending_new_note_focus = true;
 		notify({
 			app_name: 'Notes',
-			app_icon: '/app-icons/notes/256.webp',
+			app_icon: './app-icons/notes/256.webp',
 			title: 'New Note',
 			body: 'New note created',
 		});
@@ -489,7 +489,7 @@
 		save_note({ ...note, deleted_at: Date.now() });
 		notify({
 			app_name: 'Notes',
-			app_icon: '/app-icons/notes/256.webp',
+			app_icon: './app-icons/notes/256.webp',
 			title: 'Note Moved to Recently Deleted',
 			body: deleted_title,
 		});

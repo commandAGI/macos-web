@@ -236,7 +236,7 @@
 		}
 		notify({
 			app_name: 'Photos',
-			app_icon: '/app-icons/photos/256.webp',
+			app_icon: './app-icons/photos/256.webp',
 			title: '1 Photo Deleted',
 			body: filename,
 		});

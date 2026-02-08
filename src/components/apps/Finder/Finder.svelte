@@ -21,7 +21,7 @@
 	import { apps } from '../../../state/apps.svelte';
 	import { notify } from '../../../state/notifications.svelte';
 
-	const FINDER_ICON = '/app-icons/finder/256.webp';
+	const FINDER_ICON = './app-icons/finder/256.webp';
 	const FINDER_APP = 'Finder';
 
 	type ViewMode = 'icons' | 'list' | 'columns' | 'gallery';

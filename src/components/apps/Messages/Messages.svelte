@@ -75,7 +75,7 @@
 		setTimeout(() => {
 			notify({
 				app_name: 'Messages',
-				app_icon: '/app-icons/messages/256.webp',
+				app_icon: './app-icons/messages/256.webp',
 				title: convo_name,
 				body: 'Typing...',
 			});

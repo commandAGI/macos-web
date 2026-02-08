@@ -85,7 +85,7 @@
 		if (unread.length > 0) {
 			notify({
 				app_name: 'Mail',
-				app_icon: '/app-icons/mail/256.webp',
+				app_icon: './app-icons/mail/256.webp',
 				title: `${unread.length} Unread Email${unread.length > 1 ? 's' : ''}`,
 				body: `From: ${unread[0].from} — ${unread[0].subject}`,
 			});

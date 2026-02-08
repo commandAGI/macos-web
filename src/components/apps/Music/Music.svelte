@@ -221,7 +221,7 @@
 
 		notify({
 			app_name: 'Music',
-			app_icon: '/app-icons/music/256.webp',
+			app_icon: './app-icons/music/256.webp',
 			title: 'Now Playing',
 			body: `${song.title} — ${song.artist}`,
 		});

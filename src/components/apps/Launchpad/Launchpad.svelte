@@ -48,7 +48,7 @@
 			{#each page_apps as [app_id, config]}
 				<button class="app-item" onclick={() => open_app(app_id)}>
 					<img
-						src="/app-icons/{app_id}/256.webp"
+						src="./app-icons/{app_id}/256.webp"
 						alt={config.title}
 						class="app-icon"
 					/>

@@ -356,7 +356,7 @@
 					tabs[tab_index] = { ...tabs[tab_index], loading: false, load_progress: 100 };
 					notify({
 						app_name: 'Safari',
-						app_icon: '/app-icons/safari/256.webp',
+						app_icon: './app-icons/safari/256.webp',
 						title: 'Page Loaded',
 						body: tabs[tab_index].display_url,
 					});

@@ -23,7 +23,7 @@
 		if (count > 0) {
 			notify({
 				app_name: 'Calendar',
-				app_icon: '/app-icons/calendar/256.webp',
+				app_icon: './app-icons/calendar/256.webp',
 				title: `You have ${count} events today`,
 				body: today_events.map(e => `${e.time} ${e.title}`).join(', '),
 			});

@@ -90,7 +90,7 @@
 
 		notify({
 			app_name: 'FaceTime',
-			app_icon: '/app-icons/facetime/256.webp',
+			app_icon: './app-icons/facetime/256.webp',
 			title: `${type === 'video' ? 'Video' : 'Audio'} Call`,
 			body: `Calling ${contact.name}...`,
 		});
@@ -114,7 +114,7 @@
 			setTimeout(() => {
 				notify({
 					app_name: 'FaceTime',
-					app_icon: '/app-icons/facetime/256.webp',
+					app_icon: './app-icons/facetime/256.webp',
 					title: 'Incoming Call',
 					body: `${missed.contact.name} is calling...`,
 				});
