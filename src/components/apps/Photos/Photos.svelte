@@ -767,7 +767,7 @@
 	.photo-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size, 120px), 1fr));
-		gap: 2px;
+		gap: 4px;
 	}
 
 	.photo-tile {

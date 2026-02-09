@@ -77,7 +77,7 @@
 
 		<div class="content">
 			<div class="content-header">
-				<h1>{lists.find(l => l.id === active_list)?.name}</h1>
+				<h1 style:color={lists.find(l => l.id === active_list)?.color}>{lists.find(l => l.id === active_list)?.name}</h1>
 				<button class="add-btn" onclick={() => document.querySelector<HTMLInputElement>('.reminder-input')?.focus()}>+</button>
 			</div>
 
@@ -220,7 +220,6 @@
 			font-size: 24px;
 			font-weight: 700;
 			margin: 0;
-			color: #007aff;
 		}
 	}
 

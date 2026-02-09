@@ -288,6 +288,7 @@
 <style>
 	header {
 		padding: 0.75rem;
+		background-color: #4a4a4c;
 	}
 
 	.container {
@@ -412,6 +413,8 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: flex-end;
+
+		background-color: #4a4a4c;
 	}
 
 	:global(.tl-container.calculator) {
@@ -423,10 +426,6 @@
 	@media (prefers-color-scheme: light) {
 		.container {
 			background-color: #f0f0f0;
-		}
-
-		.show-area {
-			color: #1c1c1e;
 		}
 
 		.number-button {
