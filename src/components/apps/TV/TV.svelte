@@ -311,10 +311,11 @@
 	.sidebar-item {
 		display: flex;
 		align-items: center;
+		justify-content: flex-start;
 		gap: 8px;
 		width: calc(100% - 8px);
 		margin: 0 4px;
-		padding: 3px 6px;
+		padding: 3px 12px;
 		border: none;
 		background: none;
 		font-size: 13px;
