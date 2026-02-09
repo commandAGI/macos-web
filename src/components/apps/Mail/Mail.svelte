@@ -379,7 +379,9 @@
 	.message-preview {
 		flex: 1;
 		overflow-y: auto;
+		overflow-x: hidden;
 		padding: 20px;
+		min-width: 0;
 	}
 
 	.preview-header {
@@ -391,6 +393,8 @@
 			font-size: 18px;
 			font-weight: 600;
 			margin: 0 0 8px;
+			word-wrap: break-word;
+			overflow-wrap: break-word;
 		}
 
 		:global(body.dark) & {
@@ -413,6 +417,8 @@
 		font-size: 14px;
 		line-height: 1.6;
 		white-space: pre-wrap;
+		word-wrap: break-word;
+		overflow-wrap: break-word;
 	}
 
 	.empty-state, .no-selection {
