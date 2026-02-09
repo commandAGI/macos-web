@@ -191,8 +191,8 @@
 
 	.tl-container {
 		position: absolute;
-		top: 1rem;
-		left: 1rem;
+		top: 0.75rem;
+		left: 0.75rem;
 
 		/* // Necessary, as `.container` tries to apply shadow on it */
 		box-shadow: none !important;
